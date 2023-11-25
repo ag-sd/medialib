@@ -1,4 +1,3 @@
-import json
 import os.path
 import shutil
 import subprocess
@@ -25,7 +24,7 @@ class ExifInfoFormat(Enum):
     JSON = "-j"
     PHP = "-php"
     XML = "-X"
-    TREE = "-j"
+    CSV = "-csv"
 
 
 class ExifInfo:
@@ -34,8 +33,8 @@ class ExifInfo:
         test_exiftool()
         self._file = file
         self._format = fmt
-        self._raw_data = self._get_exif_data(file)
-        self._data = json.loads(self._raw_data)
+        self._cmd = self._create_command(file, fmt)
+        self._data = self._get_exif_data(file, self._cmd)
 
     @property
     def file(self):
@@ -46,19 +45,19 @@ class ExifInfo:
         return self._format
 
     @property
-    def raw_data(self):
-        return self._raw_data
-
-    @property
     def data(self):
         return self._data
 
-    def _get_exif_data(self, file: str):
+    @property
+    def command(self):
+        return self._cmd
+
+    @staticmethod
+    def _get_exif_data(file: str, cmd: list):
         # Check if file exists
         if not os.path.exists(file):
             raise ValueError(f"{file} does not exist. Unable to proceed")
 
-        cmd = self._create_command(file, self._format)
         app.logger.info(f"Exiftool to run with the command: {cmd}")
         proc = subprocess.run(cmd, capture_output=True, text=True)
         app.logger.debug(f"Exiftool command completed. Check returned data")
