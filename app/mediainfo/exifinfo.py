@@ -5,26 +5,46 @@ from enum import Enum
 
 import app
 
+# https://exiftool.org/exiftool_pod.html#Input-output-text-formatting
 EXIFTOOL_APP = "exiftool"
 
-
-# https://exiftool.org/exiftool_pod.html#Input-output-text-formatting
 
 def test_exiftool():
     exiftool = shutil.which(EXIFTOOL_APP)
     if exiftool is None:
         raise RuntimeError("Exiftool was not found on this system. "
                            "You should install the tool from here: https://exiftool.org/")
-    else:
-        app.logger.debug(f"Exiftool installed at {exiftool}")
+
+
+test_exiftool()
+listf_proc = subprocess.run([EXIFTOOL_APP, "-listf"], capture_output=True, text=True)
+listf_proc.check_returncode()
+SUPPORTED_FORMATS = listf_proc.stdout.split(":")[1].replace("\n", '').replace("  ", ' ').strip().upper()
+
+
+def is_supported(file: str) -> bool:
+    """
+    Checks the input file to determine if exiftool supports it
+    :param file: The file to test
+    :return: true if the file is supported, false otherwise
+    """
+    _, ext = os.path.splitext(file)
+    return SUPPORTED_FORMATS.find(ext[1:].upper()) >= 0
 
 
 class ExifInfoFormat(Enum):
-    HTML = "-h"
-    JSON = "-j"
-    PHP = "-php"
-    XML = "-X"
-    CSV = "-csv"
+    HTML = "htm", ["-h", "-g", "-struct"]
+    JSON = "json", ["-j", "-g", "-struct"]
+    PHP = "php", ["-php", "-g", "-struct"]
+    XML = "xml", ["-X", "-g", "-struct"]
+    CSV = "csv", ["-j", "-G1"]
+
+    def __init__(self, _, args: list):
+        self._args = args
+
+    @property
+    def args(self):
+        return self._args
 
 
 class ExifInfo:
@@ -54,6 +74,10 @@ class ExifInfo:
 
     @staticmethod
     def _get_exif_data(file: str, cmd: list):
+        # Check if file is supported
+        if not is_supported(file):
+            raise ValueError(f"{file} is not in the list of supported formats.\n{SUPPORTED_FORMATS}")
+
         # Check if file exists
         if not os.path.exists(file):
             raise ValueError(f"{file} does not exist. Unable to proceed")
@@ -75,9 +99,6 @@ class ExifInfo:
         # Create the command
         cmd = [EXIFTOOL_APP, file]
         # Format
-        cmd.append(_format.value)
-        # Grouping
-        cmd.append("-g")
-        # Structured
-        cmd.append("-struct")
+        cmd.extend(_format.args)
+
         return cmd
