@@ -16,6 +16,7 @@ def test_exiftool():
                            "You should install the tool from here: https://exiftool.org/")
 
 
+# Get supported formats
 test_exiftool()
 listf_proc = subprocess.run([EXIFTOOL_APP, "-listf"], capture_output=True, text=True)
 listf_proc.check_returncode()

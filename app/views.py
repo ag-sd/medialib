@@ -6,7 +6,7 @@ from PyQt6.QtGui import QFontDatabase, QStandardItemModel, QStandardItem, QIcon
 from PyQt6.QtWidgets import QTextEdit, QTreeView, QTableView, QAbstractItemView
 
 import app
-from app.mediainfo.exifinfo import ExifInfoFormat, ExifInfo
+from app.database.exifinfo import ExifInfoFormat
 
 _MIME_ICON_CACHE = {}
 _mime_database = QMimeDatabase()
@@ -31,23 +31,22 @@ def get_mime_type_icon(mime_type_icon_name: str):
 
 
 class TextView(QTextEdit):
-    def __init__(self, exif_info: ExifInfo):
+    def __init__(self, str_data: str):
         super().__init__()
         self.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
         self.setStyleSheet("QTextEdit{background: #665c54; color: #FBF1C7; font-size: 11.5px;}")
-        self.setText(exif_info.data)
+        self.setText(str_data)
 
 
 class HtmlView(QTextEdit):
-    def __init__(self, exif_info: ExifInfo):
+    def __init__(self, html_str_data: str):
         super().__init__()
-        self.setHtml(exif_info.data)
+        self.setHtml(html_str_data)
 
 
 class JsonView(QTreeView):
-    def __init__(self, exif_info: ExifInfo):
+    def __init__(self, json_str_data: str):
         super().__init__()
-        self.exif_info = exif_info
         self.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)
         self.setSelectionBehavior(QTreeView.SelectionBehavior.SelectRows)
         self.setAlternatingRowColors(True)
@@ -56,7 +55,7 @@ class JsonView(QTreeView):
         model.setColumnCount(2)
         model.setHeaderData(0, Qt.Orientation.Horizontal, "Key")
         model.setHeaderData(1, Qt.Orientation.Horizontal, "Data")
-        self._build(model.invisibleRootItem(), "EXIFDATA", json.loads(exif_info.data))
+        self._build(model.invisibleRootItem(), "EXIFDATA", json.loads(json_str_data))
         self.setModel(model)
         self.expandAll()
         self.resizeColumnToContents(0)
@@ -67,7 +66,7 @@ class JsonView(QTreeView):
         Recursively builds the tree
         :param root: The root to add leaves to
         :param parent: The parent of the current data
-        :param data: the data eliment that should be added to the tree
+        :param data: the data element that should be added to the tree
         """
         if isinstance(data, dict):
             # Iterate Dict by key
@@ -89,15 +88,15 @@ class JsonView(QTreeView):
 
 class TableView(QTableView):
     class DataModel(QAbstractTableModel):
-        def __init__(self, exif_infos: list):
+        def __init__(self, table_str_datas: list):
             super().__init__()
             self._exif_data = []
             self._exif_cols = []
             self._QStandardItem_cache = {}
 
             all_keys = []
-            for info in exif_infos:
-                json_data = json.loads(info.data)
+            for data in table_str_datas:
+                json_data = json.loads(data)
                 for entry in json_data:
                     all_keys.extend(list(entry.keys()))
                     self._exif_data.append(entry)
@@ -136,7 +135,7 @@ class TableView(QTableView):
                     self._QStandardItem_cache[p_index] = item
             return item
 
-    def __init__(self, exif_info: ExifInfo):
+    def __init__(self, table_str_data: str):
         super().__init__()
         self.setAlternatingRowColors(True)
         self.setShowGrid(False)
@@ -149,7 +148,7 @@ class TableView(QTableView):
         # self.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
         self.horizontalHeader().setSectionsClickable(True)
         self.setSortingEnabled(True)
-        self.setModel(self.DataModel([exif_info]))
+        self.setModel(self.DataModel([table_str_data]))
 
 
 class ViewType(Enum):
