@@ -1,12 +1,16 @@
 import argparse
 import sys
+from datetime import datetime
+from pathlib import Path
 
-from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, QLabel, QMessageBox
+from PyQt6.QtCore import QDir, QUrl
+from PyQt6.QtGui import QDesktopServices, QIcon
+from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, QLabel, QMessageBox, QFileDialog
 
 import app
-from app.actions import AppMenuBar
+from app.actions import AppMenuBar, MediaLibAction
 from app.database import exifinfo
-from app.database.Database import Database
+from app.database.database import Database
 from app.views import ViewType
 
 
@@ -33,14 +37,18 @@ class MediaLibApp(QMainWindow):
         elif app_args.paths is not None:
             app.logger.info(f"Loading paths {app_args.paths}")
             self.database = Database.create_default(paths=app_args.paths)
+        else:
+            app.logger.warning("Neither a database or paths were provided. App is in reduced feature mode")
+            self.database = Database.create_default(paths=[])
 
         # Current View
         app.logger.debug("Setup current view widgets ...")
-        self.current_view_type = self.database.default_view if app_args.view is None else ViewType[app_args.view.upper()]
+        self.current_view_type = self.database.default_view if app_args.view is None else ViewType[
+            app_args.view.upper()]
         self.current_view = QWidget()
         self.current_view_type_label = QLabel(self.current_view_type.name)
         self.current_view_type_label.setContentsMargins(15, 0, 15, 0)
-        self.current_view_db_name = QLabel(self.database.database_name)
+        self.current_view_db_name = QLabel(self.database.name)
         self.current_view_path_name = QLabel("")
 
         self.view_layout = QVBoxLayout()
@@ -66,7 +74,7 @@ class MediaLibApp(QMainWindow):
         self.setWindowTitle(app.__APP_NAME__)
         self.setMinimumWidth(768)
         self.setMinimumHeight(768)
-
+        self.setWindowIcon(QIcon.fromTheme("medialib-icon"))
         # Load the first entry from the database
         if len(self.database.paths) > 0:
             app.logger.debug("Load first path and present data ...")
@@ -77,6 +85,32 @@ class MediaLibApp(QMainWindow):
 
     def _action_event(self, event):
         app.logger.debug(f"Action triggered {event}")
+        match event:
+            case MediaLibAction.OPEN_PATH | MediaLibAction.OPEN_FILE:
+                paths = self._get_new_path(is_dir=True if event == MediaLibAction.OPEN_PATH else False)
+                if len(paths) > 0:
+                    app.logger.debug(f"User supplied {len(paths)} additional paths {paths}")
+                    # Add to database
+                    self.database.add_paths(paths)
+                    # Add to DB Menu
+                    self.menubar.add_db_paths(paths)
+                    # Show the first path
+                    self.statusBar().showMessage(f"Scanning {paths[0]}. Please wait...")
+                    self._path_changed(paths[0])
+                    self.statusBar().showMessage("Ready.", msecs=2000)
+                else:
+                    app.logger.debug(f"Cancel action clicked, no paths supplied")
+            case MediaLibAction.OPEN_GIT:
+                app.logger.debug(f"Opening app url {app.__APP_URL__} in default web browser")
+                QDesktopServices.openUrl(QUrl(app.__APP_URL__))
+            case MediaLibAction.APP_EXIT:
+                app.logger.debug(f"Goodbye!")
+                self.close()
+            case MediaLibAction.ABOUT:
+                html = Path(Path(__file__).parent / "resources" / "about.html").read_text()
+                QMessageBox.about(self, app.__APP_NAME__,
+                                  html.format(APP_NAME=app.__NAME__, APP_URL=app.__APP_URL__,
+                                              VERSION=app.__VERSION__, YEAR=datetime.now().year))
 
     def _path_changed(self, path):
         def swap_view(new_view):
@@ -99,6 +133,33 @@ class MediaLibApp(QMainWindow):
         if self.current_view_path_name.text() != "":
             self._path_changed(self.current_view_path_name.text())
 
+    def _get_new_path(self, is_dir=False) -> list:
+        """
+        Sets up a File-Chooser and allows the user to select a file or directory.
+        :param is_dir: whether to allow the user to only choose files or dirs
+        :return: If a file was selected, returns it
+        """
+        files = []
+        exiftool_file_filter = f"ExifTool Supported Files (*.{' *.'.join(exifinfo.SUPPORTED_FORMATS.split(' '))})"
+        if is_dir:
+            path = QFileDialog.getExistingDirectory(self, "Select Directory", str(Path.home()),
+                                                    QFileDialog.Option.DontUseCustomDirectoryIcons |
+                                                    QFileDialog.Option.ShowDirsOnly)
+            if path != "":
+                files.append(QDir.toNativeSeparators(path))
+        else:
+            app.logger.debug(f"Filtering for files that match the following extensions {exiftool_file_filter}")
+            resp = QFileDialog.getOpenFileNames(self, "Select Files", str(Path.home()), filter=exiftool_file_filter,
+                                                options=QFileDialog.Option.DontUseCustomDirectoryIcons)
+            if len(resp[0]) > 0:
+                for file in resp[0]:
+                    files.append(QDir.toNativeSeparators(file))
+        return files
+
+
+class DatabaseSaveModal(QWidget):
+    pass
+
 
 if __name__ == '__main__':
     # Test if Exiftool is installed
@@ -117,6 +178,10 @@ if __name__ == '__main__':
     app.logger.debug(f"Input args supplied     view: {args.view}")
     app.logger.debug(f"Input args supplied    paths: {args.paths}")
     app.logger.debug(f"Input args supplied database: {args.database}")
+
+    app.logger.debug(f"############################### TESTING CODE HERE ###############################")
+
+    app.logger.debug(f"############################### TESTING CODE HERE ###############################")
 
     # Prepare and launch GUI
     application = QApplication(sys.argv)

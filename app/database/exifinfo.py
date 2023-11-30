@@ -1,7 +1,8 @@
-import os.path
+
 import shutil
 import subprocess
 from enum import Enum
+from pathlib import Path
 
 import app
 
@@ -29,16 +30,16 @@ def is_supported(file: str) -> bool:
     :param file: The file to test
     :return: true if the file is supported, false otherwise
     """
-    _, ext = os.path.splitext(file)
+    ext = Path(file).suffix
     return SUPPORTED_FORMATS.find(ext[1:].upper()) >= 0
 
 
 class ExifInfoFormat(Enum):
-    HTML = "htm", ["-h", "-g", "-struct"]
-    JSON = "json", ["-j", "-g", "-struct"]
-    PHP = "php", ["-php", "-g", "-struct"]
-    XML = "xml", ["-X", "-g", "-struct"]
-    CSV = "csv", ["-j", "-G1"]
+    CSV = "csv", ["-j", "-G1", "-r"]
+    PHP = "php", ["-php", "-g", "-struct", "-r"]
+    XML = "xml", ["-X", "-g", "-struct", "-r"]
+    HTML = "html", ["-h", "-g", "-struct", "-r"]
+    JSON = "json", ["-j", "-g", "-struct", "-r"]
 
     def __init__(self, _, args: list):
         self._args = args
@@ -75,13 +76,15 @@ class ExifInfo:
 
     @staticmethod
     def _get_exif_data(file: str, cmd: list):
-        # Check if file is supported
-        if not is_supported(file):
-            raise ValueError(f"{file} is not in the list of supported formats.\n{SUPPORTED_FORMATS}")
-
+        # TODO: Test
         # Check if file exists
-        if not os.path.exists(file):
+        p_file = Path(file)
+        if not p_file.exists():
             raise ValueError(f"{file} does not exist. Unable to proceed")
+
+        # Check if file is supported
+        if p_file.is_file() and not is_supported(file):
+            raise ValueError(f"{file} is not in the list of supported formats.\n{SUPPORTED_FORMATS}")
 
         app.logger.info(f"Exiftool to run with the command: {cmd}")
         proc = subprocess.run(cmd, capture_output=True, text=True)
@@ -97,9 +100,16 @@ class ExifInfo:
         :param _format: the output Format
         :return: the command to execute
         """
+        # TODO: Test
         # Create the command
         cmd = [EXIFTOOL_APP, file]
         # Format
         cmd.extend(_format.args)
 
         return cmd
+
+
+if __name__ == '__main__':
+    print(SUPPORTED_FORMATS)
+    print(" *.".join(SUPPORTED_FORMATS.split(" ")))
+    print(f"ExifTool Supported Files (*.{' *.'.join(SUPPORTED_FORMATS.split(' '))})")

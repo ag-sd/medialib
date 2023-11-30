@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import QMenuBar, QMenu
 
 import app
 from app import views
-from app.database.Database import Database
+from app.database.database import Database
 from app.views import ViewType
 
 
@@ -23,18 +23,20 @@ def _create_action(parent, name, func=None, shortcut=None, tooltip=None, icon=No
     :param checked: Whether the visual cue associated with this action represents a check mark
     :return: A QAction object representing this action
     """
+    # TODO: Test
     action = QAction(name, parent)
-    if shortcut is not None:
+    if tooltip and shortcut:
+        tooltip = f"{tooltip} ({shortcut})"
+    if shortcut:
         action.setShortcut(shortcut)
-    if tooltip is not None:
-        if shortcut is not None:
-            tooltip = f"{tooltip} ({shortcut})"
+    if tooltip:
         action.setToolTip(tooltip)
+        action.setStatusTip(tooltip)
     if func:
         action.triggered.connect(partial(func, name))
-    if icon is not None:
+    if icon:
         action.setIcon(QIcon.fromTheme(icon))
-    if checked is not None:
+    if checked:
         action.setCheckable(True)
         action.setChecked(checked)
     return action
@@ -46,6 +48,7 @@ def _find_action(text, actions):
     :param text: action text to search for
     :return:
     """
+    # TODO: Test
     q = list(actions)
     while len(q) > 0:
         action = q.pop(0)
@@ -58,11 +61,12 @@ def _find_action(text, actions):
 
 
 class MediaLibAction(StrEnum):
-    OPEN_FILE = "Open File"
-    OPEN_PATH = "Open Directory"
-    OPEN_DB = "Open Database"
+    OPEN_FILE = "Open Files..."
+    OPEN_PATH = "Open Directory..."
+    OPEN_DB = "Open Database..."
+    OPEN_DB_REGISTRY = "Open Database Registry..."
     APP_EXIT = "Exit"
-    OPEN_GIT = "Go to Project on GitHub"
+    OPEN_GIT = "Go to Project on GitHub..."
     ABOUT = "About"
 
 
@@ -80,6 +84,8 @@ class AppMenuBar(QMenuBar):
         ViewType.CSV: "text-csv",
     }
 
+    _MENU_DATABASE_PATHS = "Database Paths"
+
     def __init__(self, database: Database):
         super().__init__()
         self.db_menu = self._create_database_menu(database)
@@ -89,26 +95,33 @@ class AppMenuBar(QMenuBar):
         self.addMenu(self.view_menu)
         self.addMenu(self._create_help_menu())
 
-    def add_db_path(self, item):
+    def add_db_paths(self, paths):
+        # TODO: Test
         """
-        Adds a new path tho the database path menu, if this path does not exist already
-        :param item: The path to add
+        Adds new paths to the database path menu, if these paths does not exist already
+        :param paths: The paths to add
         """
-        self._add_path(self.db_menu, item)
+        paths_menu = _find_action(self._MENU_DATABASE_PATHS, self.db_menu.actions()).menu()
+        for item in paths:
+            self._add_path(paths_menu, item)
 
     def _create_view_menu(self, database: Database):
+        # TODO: Test
         view_menu = QMenu("&View", self)
         for i, v in enumerate(database.views):
             view_menu.addAction(_create_action(self, v.name, func=self.raise_view_event, icon=self.__view_icons__[v],
-                                               shortcut=f"Ctrl+Alt+{i + 1}"))
+                                               shortcut=f"Alt+Shift+{i + 1}", tooltip=v.description))
 
         return view_menu
 
     def _create_database_menu(self, database: Database):
+        # TODO: Test
         db_menu = QMenu("&Database", self)
-        db_menu.addAction(_create_action(self, "Save", shortcut="Ctrl+S", icon="document-save",
-                                         tooltip="Save the exif data of all open paths to the DB",
-                                         func=self.raise_db_event))
+        save_action = _create_action(self, "Save", shortcut="Ctrl+S", icon="document-save",
+                                     tooltip="Save the exif data of all open paths to the DB", func=self.raise_db_event)
+        # You can only save to an existing database. Default databases need to be 'saved as'
+        save_action.setEnabled(not database.is_default)
+        db_menu.addAction(save_action)
         db_menu.addAction(_create_action(self, "Save As", shortcut="Ctrl+Shift+S", icon="document-save-as",
                                          tooltip="Save the exif data of all open paths to the DB",
                                          func=self.raise_db_event))
@@ -119,12 +132,13 @@ class AppMenuBar(QMenuBar):
                                          tooltip="Reset this database",
                                          func=self.raise_db_event))
         db_menu.addSeparator()
-        db_menu.addAction(_create_action(self, "Open DB Registry", shortcut="Ctrl+Shift+O",
-                                         icon="document-open-folder", func=self.raise_db_event,
-                                         tooltip="Save the exif data of the current paths to the DB"))
-        db_menu.addSeparator()
+
+        paths_menu = QMenu(self._MENU_DATABASE_PATHS, self)
+        paths_menu.setIcon(QIcon.fromTheme("database-paths"))
         for path in database.paths:
-            self._add_path(db_menu, path)
+            self._add_path(paths_menu, path)
+
+        db_menu.addMenu(paths_menu)
         return db_menu
 
     def _add_path(self, menu: QMenu, path: str):
@@ -133,34 +147,43 @@ class AppMenuBar(QMenuBar):
         :param path: The path to add
         :param menu: The menu to add the path to
         """
-        print(len(menu.actions()))
+        # TODO: Test
+        count = len(menu.actions())
         existing = _find_action(path, menu.actions())
         if existing is not None:
             app.logger.warning(f"{path} already exists in this database.")
             return
-        menu.addAction(_create_action(self, path, func=self.raise_path_change,
-                                      icon=views.get_mime_type_icon_name(path)))
+        menu.addAction(_create_action(self, path, func=self.raise_path_change, icon=views.get_mime_type_icon_name(path),
+                                      shortcut=f"Ctrl+{count + 1}" if count < 9 else None))
 
     def _create_file_menu(self):
+        # TODO: Test
         file_menu = QMenu("&File", self)
         file_menu.addAction(_create_action(self, MediaLibAction.OPEN_FILE, shortcut="Ctrl+O",
                                            func=self.raise_menu_event, icon="document-open",
                                            tooltip="Open a file to view its exif data"))
         file_menu.addAction(_create_action(self, MediaLibAction.OPEN_PATH, shortcut="Ctrl+D",
-                                           icon="document-open-folder", func=self.raise_menu_event,
-                                           tooltip="Open a directory to view info of all supported files in it"))
+                                           func=self.raise_menu_event,
+                                           tooltip="Open a directory to view info of all supported files in it",
+                                           icon="document-open-folder"))
+        file_menu.addSeparator()
         file_menu.addAction(_create_action(self, MediaLibAction.OPEN_DB, shortcut="Ctrl+D",
-                                           icon="document-open-folder", func=self.raise_menu_event,
-                                           tooltip="Open a directory to view info of all supported files in it"))
+                                           icon="database-open", func=self.raise_menu_event,
+                                           tooltip="Open a non registered private database"))
+        file_menu.addAction(_create_action(self, MediaLibAction.OPEN_DB_REGISTRY, shortcut="Ctrl+Shift+O",
+                                           icon="database-registry", func=self.raise_db_event,
+                                           tooltip="Open the database registry to view public databases"))
         file_menu.addSeparator()
         file_menu.addAction(_create_action(self, MediaLibAction.APP_EXIT, func=self.raise_menu_event,
-                                           shortcut="Ctrl+Q", icon="application-exit"))
+                                           shortcut="Ctrl+Q", icon="application-exit",
+                                           tooltip=f"Quit {app.__NAME__}"))
         return file_menu
 
     def _create_help_menu(self):
+        # TODO: Test
         help_menu = QMenu("&Help", self)
         help_menu.addAction(_create_action(self, MediaLibAction.OPEN_GIT, self.raise_menu_event,
-                                           icon="folder-git", tooltip="About this application"))
+                                           icon="folder-git", tooltip="Visit this project on GitHub"))
         help_menu.addSeparator()
         help_menu.addAction(_create_action(self, MediaLibAction.ABOUT, self.raise_menu_event, icon="help-about",
                                            tooltip="About this application"))
@@ -177,3 +200,4 @@ class AppMenuBar(QMenuBar):
 
     def raise_db_event(self, event):
         self.database_action_selected.emit(event)
+

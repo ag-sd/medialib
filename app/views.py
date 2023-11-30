@@ -18,6 +18,7 @@ def get_mime_type_icon_name(file: str) -> str:
 
 
 def get_mime_type_icon(mime_type_icon_name: str):
+    # TODO: Test
     if mime_type_icon_name not in _MIME_ICON_CACHE:
         mime_icon = QIcon.fromTheme(mime_type_icon_name)
         if mime_icon is None:
@@ -88,6 +89,7 @@ class JsonView(QTreeView):
 
 class TableView(QTableView):
     class DataModel(QAbstractTableModel):
+        # TODO: Test
         def __init__(self, table_str_datas: list):
             super().__init__()
             self._exif_data = []
@@ -152,11 +154,11 @@ class TableView(QTableView):
 
 
 class ViewType(Enum):
-    CSV = ExifInfoFormat.CSV, TableView, "Export information in CSV format"
-    JSON = ExifInfoFormat.JSON, JsonView, "Use JSON (JavaScript Object Notation) formatting for console output"
-    HTML = ExifInfoFormat.HTML, HtmlView, "Use HTML table formatting for output."
-    PHP = ExifInfoFormat.PHP, TextView, "Format output as a PHP Array."
-    XML = ExifInfoFormat.XML, TextView, "Use ExifTool-specific RDF/XML formatting for console output."
+    CSV = ExifInfoFormat.CSV, TableView, "Display information in a table format"
+    JSON = ExifInfoFormat.JSON, JsonView, "Display information in JSON (JavaScript Object Notation) formatting"
+    HTML = ExifInfoFormat.HTML, HtmlView, "Display information as an HTML table"
+    PHP = ExifInfoFormat.PHP, TextView, "Format output as a PHP Array"
+    XML = ExifInfoFormat.XML, TextView, "Display information in ExifTool-specific RDF/XML formatting"
 
     def __init__(self, exif_format: ExifInfoFormat, view, description: str):
         self._description = description
@@ -174,3 +176,11 @@ class ViewType(Enum):
     @property
     def view(self):
         return self._view
+
+    def __eq__(self, other):
+        if isinstance(other, ViewType):
+            return self.name == other.name
+        return False
+
+    def __hash__(self):
+        return hash((type(self).__qualname__, self.name))
