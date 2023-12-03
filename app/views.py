@@ -154,15 +154,17 @@ class TableView(QTableView):
 
 
 class ViewType(Enum):
-    CSV = ExifInfoFormat.CSV, TableView, "Display information in a table format"
-    JSON = ExifInfoFormat.JSON, JsonView, "Display information in JSON (JavaScript Object Notation) formatting"
-    HTML = ExifInfoFormat.HTML, HtmlView, "Display information as an HTML table"
-    PHP = ExifInfoFormat.PHP, TextView, "Format output as a PHP Array"
-    XML = ExifInfoFormat.XML, TextView, "Display information in ExifTool-specific RDF/XML formatting"
+    CSV = ExifInfoFormat.CSV, TableView, "text-csv", "Display information in a table format"
+    HTML = ExifInfoFormat.HTML, HtmlView, "text-html", "Display information as an HTML table"
+    PHP = ExifInfoFormat.PHP, TextView, "application-x-php", "Format output as a PHP Array"
+    XML = ExifInfoFormat.XML, TextView, "application-xml", "Display information in ExifTool-specific RDF/XML formatting"
+    JSON = ExifInfoFormat.JSON, JsonView, "application-json", ("Display information in JSON (JavaScript Object "
+                                                               "Notation) formatting")
 
-    def __init__(self, exif_format: ExifInfoFormat, view, description: str):
+    def __init__(self, exif_format: ExifInfoFormat, view, icon_name: str, description: str):
         self._description = description
         self._exif_format = exif_format
+        self._icon_name = icon_name
         self._view = view
 
     @property
@@ -176,6 +178,10 @@ class ViewType(Enum):
     @property
     def view(self):
         return self._view
+
+    @property
+    def icon(self):
+        return self._icon_name
 
     def __eq__(self, other):
         if isinstance(other, ViewType):

@@ -1,7 +1,7 @@
-
 import shutil
 import subprocess
-from enum import Enum
+import tempfile
+from enum import Enum, StrEnum
 from pathlib import Path
 
 import app
@@ -49,14 +49,26 @@ class ExifInfoFormat(Enum):
         return self._args
 
 
+class ExifInfoStatus(StrEnum):
+    READY = "Ready"
+    WAITING = "Waiting"
+
+
 class ExifInfo:
-    def __init__(self, file, fmt: ExifInfoFormat = ExifInfoFormat.JSON):
+    DATA_ENCODING = "utf-8"
+
+    def __init__(self, file, fmt: ExifInfoFormat = ExifInfoFormat.JSON, output_path: str | None = None):
         super().__init__()
         test_exiftool()
         self._file = file
         self._format = fmt
         self._cmd = self._create_command(file, fmt)
-        self._data = self._get_exif_data(file, self._cmd)
+        if output_path is None:
+            self._output_file = tempfile.NamedTemporaryFile().name
+        else:
+            self._output_file = output_path
+        self._status = self._capture_exif_data(file, self._cmd, self._output_file)
+        self._data = ""
 
     @property
     def file(self):
@@ -68,29 +80,45 @@ class ExifInfo:
 
     @property
     def data(self):
+        if self._data == "":
+            app.logger.debug(f"Loading data from file {self._output_file}")
+            self._data = Path(self._output_file).read_text(encoding=self.DATA_ENCODING)
         return self._data
 
     @property
     def command(self):
         return self._cmd
 
+    @property
+    def output_file(self):
+        return self._output_file
+
     @staticmethod
-    def _get_exif_data(file: str, cmd: list):
-        # TODO: Test
-        # Check if file exists
+    def _capture_exif_data(file: str, cmd: list, output_file: str) -> ExifInfoStatus:
         p_file = Path(file)
         if not p_file.exists():
-            raise ValueError(f"{file} does not exist. Unable to proceed")
+            raise ValueError(f"Input {file} does not exist. Unable to proceed")
 
         # Check if file is supported
         if p_file.is_file() and not is_supported(file):
-            raise ValueError(f"{file} is not in the list of supported formats.\n{SUPPORTED_FORMATS}")
+            raise ValueError(f"Input {file} is not in the list of supported formats.\n{SUPPORTED_FORMATS}")
 
         app.logger.info(f"Exiftool to run with the command: {cmd}")
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+
+        output_file_obj = Path(output_file)
+        if not output_file_obj.exists():
+            app.logger.debug(f"{output_file_obj} does not exist. It will be created")
+        else:
+            app.logger.warning(f"{output_file_obj} exists and will be overwritten")
+            output_file_obj.unlink(missing_ok=False)
+
+        # Write to output file
+        app.logger.debug(f"Writing output to file {output_file}")
+        with output_file_obj.open("w", encoding=ExifInfo.DATA_ENCODING) as f_out:
+            proc = subprocess.run(cmd, stdout=f_out, text=True)
+            # proc.check_returncode()
         app.logger.debug(f"Exiftool command completed. Check returned data")
-        proc.check_returncode()
-        return proc.stdout
+        return ExifInfoStatus.READY
 
     @staticmethod
     def _create_command(file: str, _format: ExifInfoFormat):

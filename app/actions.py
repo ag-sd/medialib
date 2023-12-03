@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import QMenuBar, QMenu
 
 import app
 from app import views
-from app.database.database import Database
+from app.database.dbutils import Database
 from app.views import ViewType
 
 
@@ -63,11 +63,19 @@ def _find_action(text, actions):
 class MediaLibAction(StrEnum):
     OPEN_FILE = "Open Files..."
     OPEN_PATH = "Open Directory..."
-    OPEN_DB = "Open Database..."
-    OPEN_DB_REGISTRY = "Open Database Registry..."
     APP_EXIT = "Exit"
     OPEN_GIT = "Go to Project on GitHub..."
     ABOUT = "About"
+    SETTINGS = "Preferences..."
+
+
+class DBAction(StrEnum):
+    SAVE = "Save..."
+    SAVE_AS = "Save As..."
+    REFRESH = "Refresh"
+    RESET = "Reset"
+    OPEN_DB = "Open Database..."
+    OPEN_DB_REGISTRY = "Open Database Registry..."
 
 
 class AppMenuBar(QMenuBar):
@@ -75,14 +83,6 @@ class AppMenuBar(QMenuBar):
     path_changed = pyqtSignal(str)
     medialib_action_selected = pyqtSignal(MediaLibAction)
     database_action_selected = pyqtSignal(str)
-
-    __view_icons__ = {
-        ViewType.JSON: "application-json",
-        ViewType.HTML: "text-html",
-        ViewType.PHP: "application-x-php",
-        ViewType.XML: "application-xml",
-        ViewType.CSV: "text-csv",
-    }
 
     _MENU_DATABASE_PATHS = "Database Paths"
 
@@ -109,7 +109,7 @@ class AppMenuBar(QMenuBar):
         # TODO: Test
         view_menu = QMenu("&View", self)
         for i, v in enumerate(database.views):
-            view_menu.addAction(_create_action(self, v.name, func=self.raise_view_event, icon=self.__view_icons__[v],
+            view_menu.addAction(_create_action(self, v.name, func=self.raise_view_event, icon=v.icon,
                                                shortcut=f"Alt+Shift+{i + 1}", tooltip=v.description))
 
         return view_menu
@@ -117,18 +117,18 @@ class AppMenuBar(QMenuBar):
     def _create_database_menu(self, database: Database):
         # TODO: Test
         db_menu = QMenu("&Database", self)
-        save_action = _create_action(self, "Save", shortcut="Ctrl+S", icon="document-save",
+        save_action = _create_action(self, DBAction.SAVE, shortcut="Ctrl+S", icon="document-save",
                                      tooltip="Save the exif data of all open paths to the DB", func=self.raise_db_event)
         # You can only save to an existing database. Default databases need to be 'saved as'
         save_action.setEnabled(not database.is_default)
         db_menu.addAction(save_action)
-        db_menu.addAction(_create_action(self, "Save As", shortcut="Ctrl+Shift+S", icon="document-save-as",
+        db_menu.addAction(_create_action(self, DBAction.SAVE_AS, shortcut="Ctrl+Shift+S", icon="document-save-as",
                                          tooltip="Save the exif data of all open paths to the DB",
                                          func=self.raise_db_event))
-        db_menu.addAction(_create_action(self, "Refresh", shortcut="F5", icon="view-refresh",
+        db_menu.addAction(_create_action(self, DBAction.REFRESH, shortcut="F5", icon="view-refresh",
                                          tooltip="Save the exif data of the current paths to the DB",
                                          func=self.raise_db_event))
-        db_menu.addAction(_create_action(self, "Reset", icon="view-restore",
+        db_menu.addAction(_create_action(self, DBAction.RESET, icon="view-restore",
                                          tooltip="Reset this database",
                                          func=self.raise_db_event))
         db_menu.addSeparator()
@@ -139,6 +139,15 @@ class AppMenuBar(QMenuBar):
             self._add_path(paths_menu, path)
 
         db_menu.addMenu(paths_menu)
+
+        db_menu.addSeparator()
+        db_menu.addAction(_create_action(self, DBAction.OPEN_DB, shortcut="Ctrl+D",
+                                         icon="database-open", func=self.raise_db_event,
+                                         tooltip="Open a non registered private database"))
+        db_menu.addAction(_create_action(self, DBAction.OPEN_DB_REGISTRY, shortcut="Ctrl+Shift+O",
+                                         icon="database-registry", func=self.raise_db_event,
+                                         tooltip="Open the database registry to view public databases"))
+
         return db_menu
 
     def _add_path(self, menu: QMenu, path: str):
@@ -167,12 +176,9 @@ class AppMenuBar(QMenuBar):
                                            tooltip="Open a directory to view info of all supported files in it",
                                            icon="document-open-folder"))
         file_menu.addSeparator()
-        file_menu.addAction(_create_action(self, MediaLibAction.OPEN_DB, shortcut="Ctrl+D",
-                                           icon="database-open", func=self.raise_menu_event,
-                                           tooltip="Open a non registered private database"))
-        file_menu.addAction(_create_action(self, MediaLibAction.OPEN_DB_REGISTRY, shortcut="Ctrl+Shift+O",
-                                           icon="database-registry", func=self.raise_db_event,
-                                           tooltip="Open the database registry to view public databases"))
+        file_menu.addAction(_create_action(self, MediaLibAction.SETTINGS, func=self.raise_menu_event,
+                                           shortcut="Ctrl+,", icon="application-exit",
+                                           tooltip=f"Quit {app.__NAME__}"))
         file_menu.addSeparator()
         file_menu.addAction(_create_action(self, MediaLibAction.APP_EXIT, func=self.raise_menu_event,
                                            shortcut="Ctrl+Q", icon="application-exit",
@@ -192,12 +198,11 @@ class AppMenuBar(QMenuBar):
     def raise_view_event(self, event):
         self.view_changed.emit(ViewType[event])
 
-    def raise_menu_event(self, event):
-        self.medialib_action_selected.emit(MediaLibAction(event))
+    def raise_menu_event(self, action):
+        self.medialib_action_selected.emit(MediaLibAction(action))
 
     def raise_path_change(self, path_name):
         self.path_changed.emit(path_name)
 
-    def raise_db_event(self, event):
-        self.database_action_selected.emit(event)
-
+    def raise_db_event(self, action):
+        self.database_action_selected.emit(DBAction(action))

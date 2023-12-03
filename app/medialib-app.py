@@ -3,20 +3,17 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QDir, QUrl
+from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices, QIcon
-from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, QLabel, QMessageBox, QFileDialog
+from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, QLabel, QMessageBox
 
 import app
-from app.actions import AppMenuBar, MediaLibAction
+import apputils
+from app.actions import AppMenuBar, MediaLibAction, DBAction
 from app.database import exifinfo
-from app.database.database import Database
+from app.database.dbutils import Database
 from app.views import ViewType
-
-
-def show_exception(parent, exception: Exception):
-    app.logger.exception(exception)
-    QMessageBox.critical(parent, "An Error Occurred", str(exception))
+from database.dbwidgets import DatabaseSaveModal
 
 
 class MediaLibApp(QMainWindow):
@@ -62,8 +59,9 @@ class MediaLibApp(QMainWindow):
         app.logger.debug("Configure Menubar ...")
         self.menubar = AppMenuBar(self.database)
         self.menubar.view_changed.connect(self._view_changed)
-        self.menubar.medialib_action_selected.connect(self._action_event)
         self.menubar.path_changed.connect(self._path_changed)
+        self.menubar.medialib_action_selected.connect(self._action_event)
+        self.menubar.database_action_selected.connect(self._db_action_event)
         self.setMenuBar(self.menubar)
 
         # Setup App
@@ -83,7 +81,7 @@ class MediaLibApp(QMainWindow):
         # Present App
         self.show()
 
-    def _action_event(self, event):
+    def _action_event(self, event: MediaLibAction):
         app.logger.debug(f"Action triggered {event}")
         match event:
             case MediaLibAction.OPEN_PATH | MediaLibAction.OPEN_FILE:
@@ -112,6 +110,13 @@ class MediaLibApp(QMainWindow):
                                   html.format(APP_NAME=app.__NAME__, APP_URL=app.__APP_URL__,
                                               VERSION=app.__VERSION__, YEAR=datetime.now().year))
 
+    def _db_action_event(self, db_action):
+        app.logger.debug(f"DB action triggered {db_action}")
+        match db_action:
+            case DBAction.SAVE | DBAction.SAVE_AS:
+                dialog = DatabaseSaveModal(self, self.database, save_mode=db_action)
+                dialog.exec()
+
     def _path_changed(self, path):
         def swap_view(new_view):
             self.view_layout.replaceWidget(self.current_view, new_view)
@@ -123,7 +128,7 @@ class MediaLibApp(QMainWindow):
             swap_view(self.current_view_type.view(self.database.get_path_data(path=path, view=self.current_view_type)))
             self.current_view_path_name.setText(path)
         except Exception as exception:
-            show_exception(self, exception)
+            apputils.show_exception(self, exception)
 
     def _view_changed(self, view: ViewType):
         app.logger.debug(f"View changed {view}")
@@ -134,31 +139,8 @@ class MediaLibApp(QMainWindow):
             self._path_changed(self.current_view_path_name.text())
 
     def _get_new_path(self, is_dir=False) -> list:
-        """
-        Sets up a File-Chooser and allows the user to select a file or directory.
-        :param is_dir: whether to allow the user to only choose files or dirs
-        :return: If a file was selected, returns it
-        """
-        files = []
         exiftool_file_filter = f"ExifTool Supported Files (*.{' *.'.join(exifinfo.SUPPORTED_FORMATS.split(' '))})"
-        if is_dir:
-            path = QFileDialog.getExistingDirectory(self, "Select Directory", str(Path.home()),
-                                                    QFileDialog.Option.DontUseCustomDirectoryIcons |
-                                                    QFileDialog.Option.ShowDirsOnly)
-            if path != "":
-                files.append(QDir.toNativeSeparators(path))
-        else:
-            app.logger.debug(f"Filtering for files that match the following extensions {exiftool_file_filter}")
-            resp = QFileDialog.getOpenFileNames(self, "Select Files", str(Path.home()), filter=exiftool_file_filter,
-                                                options=QFileDialog.Option.DontUseCustomDirectoryIcons)
-            if len(resp[0]) > 0:
-                for file in resp[0]:
-                    files.append(QDir.toNativeSeparators(file))
-        return files
-
-
-class DatabaseSaveModal(QWidget):
-    pass
+        return apputils.get_new_paths(parent=self, is_dir=is_dir, file_filter=exiftool_file_filter)
 
 
 if __name__ == '__main__':
