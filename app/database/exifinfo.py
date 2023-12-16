@@ -35,11 +35,9 @@ def is_supported(file: str) -> bool:
 
 
 class ExifInfoFormat(Enum):
-    CSV = "csv", ["-j", "-G1", "-r"]
-    PHP = "php", ["-php", "-g", "-struct", "-r"]
+    JSON = "json", ["-j", "-G1", "-r"]
     XML = "xml", ["-X", "-g", "-struct", "-r"]
     HTML = "html", ["-h", "-g", "-struct", "-r"]
-    JSON = "json", ["-j", "-g", "-struct", "-r"]
 
     def __init__(self, _, args: list):
         self._args = args

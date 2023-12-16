@@ -13,6 +13,7 @@ class TestDbRegistry(unittest.TestCase):
         db = Database.create_default(paths=tmp_files)
         reg_mock.add(db)
         self.assertEqual(reg_mock.databases, [db.name])
+        reg_mock.commit()
 
     def test_add_existing(self):
         reg_mock = self.create_mock_registry()
@@ -109,6 +110,7 @@ class TestDbRegistry(unittest.TestCase):
     @staticmethod
     def create_mock_registry() -> DatabaseRegistry:
         file = tempfile.NamedTemporaryFile().name
+        print(file)
         return DatabaseRegistry(file)
 
     @staticmethod

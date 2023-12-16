@@ -1,7 +1,8 @@
 import json
 from enum import Enum
 
-from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex, QVariant, QPersistentModelIndex, QMimeDatabase
+from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex, QVariant, QPersistentModelIndex, QMimeDatabase, \
+    QSortFilterProxyModel, QRegularExpression
 from PyQt6.QtGui import QFontDatabase, QStandardItemModel, QStandardItem, QIcon
 from PyQt6.QtWidgets import QTextEdit, QTreeView, QTableView, QAbstractItemView
 
@@ -31,6 +32,11 @@ def get_mime_type_icon(mime_type_icon_name: str):
     return _MIME_ICON_CACHE[mime_type_icon_name]
 
 
+class View:
+    def foo(self):
+        print("I am called")
+
+# https://www.qtcentre.org/threads/27005-QTextEdit-find-all
 class TextView(QTextEdit):
     def __init__(self, str_data: str):
         super().__init__()
@@ -87,7 +93,9 @@ class JsonView(QTreeView):
             root.appendRow([QStandardItem(parent), QStandardItem(str(data))])
 
 
-class TableView(QTableView):
+class TableView(QTableView, View):
+    # https://stackoverflow.com/questions/57764723/make-an-active-search-with-qlistwidget
+    # https://stackoverflow.com/questions/20563826/pyqt-qtableview-search-by-hiding-rows
     class DataModel(QAbstractTableModel):
         # TODO: Test
         def __init__(self, table_str_datas: list):
@@ -150,16 +158,23 @@ class TableView(QTableView):
         # self.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
         self.horizontalHeader().setSectionsClickable(True)
         self.setSortingEnabled(True)
-        self.setModel(self.DataModel([table_str_data]))
+
+        main_model = self.DataModel([table_str_data])
+        self.proxy_model = QSortFilterProxyModel(self)
+        self.proxy_model.setSourceModel(main_model)
+        self.setModel(self.proxy_model)
+
+    def search(self, search_context):
+        re = QRegularExpression(search_context["text"], QRegularExpression.PatternOption.CaseInsensitiveOption)
+        self.proxy_model.setFilterRegularExpression(re)
 
 
 class ViewType(Enum):
-    CSV = ExifInfoFormat.CSV, TableView, "text-csv", "Display information in a table format"
+    TABLE = ExifInfoFormat.JSON, TableView, "text-csv", "Display information as a table"
     HTML = ExifInfoFormat.HTML, HtmlView, "text-html", "Display information as an HTML table"
-    PHP = ExifInfoFormat.PHP, TextView, "application-x-php", "Format output as a PHP Array"
-    XML = ExifInfoFormat.XML, TextView, "application-xml", "Display information in ExifTool-specific RDF/XML formatting"
     JSON = ExifInfoFormat.JSON, JsonView, "application-json", ("Display information in JSON (JavaScript Object "
                                                                "Notation) formatting")
+    XML = ExifInfoFormat.XML, TextView, "application-xml", "Display information in ExifTool-specific RDF/XML formatting"
 
     def __init__(self, exif_format: ExifInfoFormat, view, icon_name: str, description: str):
         self._description = description

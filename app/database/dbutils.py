@@ -21,7 +21,8 @@ class Database:
     """
 
     def __init__(self, is_default: bool, database_name,
-                 database_type: DatabaseType, paths: list, views: list, save_path: str = None):
+                 database_type: DatabaseType, paths: list, views: list, save_path: str = None,
+                 created: str = None, updated: str = None):
         """
         Set up a new Database with the supplied parameters
         :param is_default: Is the database a default database or not.
@@ -40,6 +41,8 @@ class Database:
         self._paths = paths
         self._views = views
         self._type = database_type
+        self._created = created
+        self._updated = updated
         self._path_cache = {}
         self.validate_database(self)
 
@@ -69,7 +72,15 @@ class Database:
 
     @property
     def default_view(self):
-        return ViewType.CSV
+        return ViewType.TABLE
+
+    @property
+    def created(self):
+        return self._created
+
+    @property
+    def updated(self):
+        return self._updated
 
     def add_paths(self, paths: list):
         """
@@ -78,14 +89,13 @@ class Database:
         """
         self._paths.extend(path for path in paths if path not in self._paths)
 
-    def get_path_data(self, path: str, view: ViewType, ignore_cache: bool = False, write_to_file=False) -> str:
+    def get_path_data(self, path: str, view: ViewType, write_to_file=False) -> str:
         """
         Checks if the path is in cache, if present, returns its data. if missing, and this is a default database,
         extracts the exif info and returns it. If its not a default database, returns the data associated with this path
+        :param write_to_file: Whether results of the exiftool should be written to cache
         :param path: The file to test
         :param view: The view to return
-        :param ignore_cache: If true, will ignore the entry from the cache and reload the path. Once reloaded, will add
-        it back to the cache for future use
         :return: The data to represent this path
         :raises: ValueError if path is not present in database
         :raises: ValueError if view is not supported for database
@@ -98,11 +108,11 @@ class Database:
             raise ValueError(f"{view} was not supported for this database")
 
         key = self._create_path_key(path, view)
-        if ignore_cache or key not in self._path_cache:
+        if key not in self._path_cache:
             app.logger.debug(f"Exif data for '{key}' not in cache. Adding it")
 
             if write_to_file:
-                out_file = Path(self.save_path) / self._create_path_key(path, ViewType.JSON)
+                out_file = Path(self.save_path) / key
                 app.logger.debug(f"Writing contents of {path} to {out_file}")
             else:
                 out_file = None
@@ -124,12 +134,14 @@ class Database:
         Path(self.save_path).mkdir(parents=True, exist_ok=True)
 
         # Validate database
-        self.validate_database(self)
+        self.validate_database(self, test_paths=True)
 
         app.logger.debug(f"Starting to save database {self}")
+        # Blow the cache to force a refresh
+        self._path_cache = {}
         # STEP : Iterate through each path in the database and write its metadata to disk
         for path in self.paths:
-            self.get_path_data(path, ViewType.JSON, ignore_cache=True, write_to_file=True)
+            self.get_path_data(path, ViewType.JSON, write_to_file=True)
 
     def __repr__(self):
         return f"Database: [Default: {self.is_default}] {self._database_name if not self._is_default else ''}"
@@ -143,11 +155,11 @@ class Database:
         :return: A string of the key that uniquely identifies this path in the database/cache
         """
         path_parts = Path(path).parts
-        key = f"{'__'.join(path_parts[1:])}.{view.name.lower()}"
+        key = f"{'__'.join(path_parts[1:])}.{view.format.name.lower()}"
         return key
 
     @staticmethod
-    def validate_database(database):
+    def validate_database(database, test_paths: bool = False):
         if database.name == "":
             raise ValueError("A name must be provided for this database")
 
@@ -158,9 +170,10 @@ class Database:
             if len(database.paths) == 0:
                 raise ValueError("A database must have at least one path")
 
-        for path in database.paths:
-            if not Path(path).exists():
-                raise ValueError(f"Database path '{path}' is is not a valid location")
+        if test_paths:
+            for path in database.paths:
+                if not Path(path).exists():
+                    raise ValueError(f"Database path '{path}' is is not a valid location")
 
     @classmethod
     def create_default(cls, paths: list):
@@ -188,10 +201,10 @@ class DatabaseRegistry:
         Do not directly call this object.
         :param registry_file: The ini registry file
         """
-        self._registry_file = registry_file
         _config = configparser.ConfigParser()
         _config.read(registry_file)
         self._registry = _config
+        self._registry_file = registry_file
 
     @property
     def databases(self):
@@ -289,7 +302,7 @@ def get_registry():
     return _db_registry
 
 
-_db_registry = DatabaseRegistry(appsettings.get_registry_db().name)
+_db_registry = DatabaseRegistry(appsettings.get_registry_db())
 DEFAULT_DB_NAME = "Default"
 
 ############## NOTES

@@ -3,17 +3,17 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QUrl
+from PyQt6.QtCore import QUrl, Qt
 from PyQt6.QtGui import QDesktopServices, QIcon
-from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, QLabel, QMessageBox
+from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, QLabel, QMessageBox, QDialog
 
 import app
 import apputils
 from app.actions import AppMenuBar, MediaLibAction, DBAction
 from app.database import exifinfo
 from app.database.dbutils import Database
-from app.views import ViewType
-from database.dbwidgets import DatabaseSaveModal
+from app.views import ViewType, TableView
+from database.dbwidgets import DatabaseSaveModal, DatabaseRegistryBrowser, DatabaseSearch
 
 
 class MediaLibApp(QMainWindow):
@@ -48,6 +48,15 @@ class MediaLibApp(QMainWindow):
         self.current_view_db_name = QLabel(self.database.name)
         self.current_view_path_name = QLabel("")
 
+        self.db_registry = DatabaseRegistryBrowser()
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.db_registry)
+        self.db_registry.setVisible(False)  # Switched off by default
+
+        self.db_search = DatabaseSearch()
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.db_search)
+        self.db_search.search_event.connect(self._search_text_entered)
+        self.db_search.setVisible(False)
+
         self.view_layout = QVBoxLayout()
         self.view_layout.setContentsMargins(2, 2, 2, 2)
         self.view_layout.addWidget(self.current_view)
@@ -57,11 +66,11 @@ class MediaLibApp(QMainWindow):
 
         # Menu Bar
         app.logger.debug("Configure Menubar ...")
-        self.menubar = AppMenuBar(self.database)
+        self.menubar = AppMenuBar(self.database, self.db_registry, self.db_search)
         self.menubar.view_changed.connect(self._view_changed)
         self.menubar.path_changed.connect(self._path_changed)
-        self.menubar.medialib_action_selected.connect(self._action_event)
-        self.menubar.database_action_selected.connect(self._db_action_event)
+        self.menubar.medialib_action.connect(self._action_event)
+        self.menubar.database_action.connect(self._db_action_event)
         self.setMenuBar(self.menubar)
 
         # Setup App
@@ -73,13 +82,12 @@ class MediaLibApp(QMainWindow):
         self.setMinimumWidth(768)
         self.setMinimumHeight(768)
         self.setWindowIcon(QIcon.fromTheme("medialib-icon"))
+        # Present App
+        self.show()
         # Load the first entry from the database
         if len(self.database.paths) > 0:
             app.logger.debug("Load first path and present data ...")
             self._path_changed(self.database.paths[0])
-
-        # Present App
-        self.show()
 
     def _action_event(self, event: MediaLibAction):
         app.logger.debug(f"Action triggered {event}")
@@ -114,8 +122,20 @@ class MediaLibApp(QMainWindow):
         app.logger.debug(f"DB action triggered {db_action}")
         match db_action:
             case DBAction.SAVE | DBAction.SAVE_AS:
-                dialog = DatabaseSaveModal(self, self.database, save_mode=db_action)
-                dialog.exec()
+                dialog = DatabaseSaveModal(self, window_title=db_action)
+                response_code = dialog.exec()
+                if response_code == QDialog.DialogCode.Accepted:
+                    app.logger.debug("User triggered a save")
+                    save_db = dialog.database
+                    #     app.logger.info(f"Saving database")
+                    #     save_db.save()
+                    #     if save_db.type == DatabaseType.REGISTERED:
+                    #         app.logger.info("Registering database")
+                    #         dbutils.get_registry().add(save_db)
+                    #         dbutils.get_registry().commit()
+                    #     app.logger.info(f"Complete")
+                else:
+                    app.logger.debug("User canceled this action")
 
     def _path_changed(self, path):
         def swap_view(new_view):
@@ -141,6 +161,10 @@ class MediaLibApp(QMainWindow):
     def _get_new_path(self, is_dir=False) -> list:
         exiftool_file_filter = f"ExifTool Supported Files (*.{' *.'.join(exifinfo.SUPPORTED_FORMATS.split(' '))})"
         return apputils.get_new_paths(parent=self, is_dir=is_dir, file_filter=exiftool_file_filter)
+
+    def _search_text_entered(self, search_context):
+        if isinstance(self.current_view, TableView):
+            self.current_view.search(search_context)
 
 
 if __name__ == '__main__':

@@ -21,7 +21,7 @@ class TestDatabase(unittest.TestCase):
         self.assertIsNone(db.save_path)
         self.assertEqual(db.name, "Default")
         self.assertCountEqual(db.paths, tmp_files)
-        self.assertEqual(db.default_view, ViewType.CSV)
+        self.assertEqual(db.default_view, ViewType.TABLE)
         self.assertEqual(len(db.views), 5)
 
     def test_open_database(self):
@@ -41,7 +41,7 @@ class TestDatabase(unittest.TestCase):
     def test_default_view(self):
         tmp_files = self.get_temp_files(2)
         db = Database.create_default(paths=tmp_files)
-        self.assertEqual(db.default_view, ViewType.CSV)
+        self.assertEqual(db.default_view, ViewType.TABLE)
 
     def test_validate_database(self):
         pass

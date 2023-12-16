@@ -1,9 +1,27 @@
 from pathlib import Path
 
-from PyQt6.QtCore import QDir
-from PyQt6.QtWidgets import QFileDialog, QMessageBox
+from PyQt6.QtCore import QDir, Qt
+from PyQt6.QtWidgets import QFileDialog, QMessageBox, QWidget, QHBoxLayout, QVBoxLayout, QLabel
 
 import app
+
+
+class WidgetWithLabel(QWidget):
+    def __init__(self, label_text: str, widget: QWidget, orientation: Qt.Orientation = Qt.Orientation.Horizontal):
+        """
+        Displays the properties of a database
+        :param label_text: The text to display
+        :param widget: The widget to show
+        :param orientation: Whether the label and widget will be horizontally or vertically aligned
+        """
+        super().__init__()
+        if orientation == Qt.Orientation.Horizontal:
+            layout = QHBoxLayout()
+        else:
+            layout = QVBoxLayout()
+        layout.addWidget(QLabel(label_text), 10)
+        layout.addWidget(widget, 90)
+        self.setLayout(layout)
 
 
 def show_exception(parent, exception: Exception):
