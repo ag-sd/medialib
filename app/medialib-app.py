@@ -11,7 +11,7 @@ import app
 import apputils
 from app.actions import AppMenuBar, MediaLibAction, DBAction
 from app.database import exifinfo
-from app.database.dbutils import Database
+from app.database.ds import Database
 from app.views import ViewType, TableView
 from database.dbwidgets import DatabaseSaveModal, DatabaseRegistryBrowser, DatabaseSearch
 
@@ -33,15 +33,14 @@ class MediaLibApp(QMainWindow):
             self.database = None
         elif app_args.paths is not None:
             app.logger.info(f"Loading paths {app_args.paths}")
-            self.database = Database.create_default(paths=app_args.paths)
+            self.database = Database.create_in_memory(paths=app_args.paths)
         else:
             app.logger.warning("Neither a database or paths were provided. App is in reduced feature mode")
-            self.database = Database.create_default(paths=[])
+            self.database = Database.create_in_memory(paths=["x"])
 
         # Current View
         app.logger.debug("Setup current view widgets ...")
-        self.current_view_type = self.database.default_view if app_args.view is None else ViewType[
-            app_args.view.upper()]
+        self.current_view_type = ViewType.TABLE if app_args.view is None else ViewType[app_args.view.upper()]
         self.current_view = QWidget()
         self.current_view_type_label = QLabel(self.current_view_type.name)
         self.current_view_type_label.setContentsMargins(15, 0, 15, 0)
@@ -77,6 +76,8 @@ class MediaLibApp(QMainWindow):
         app.logger.debug("Setup app layout ...")
         dummy_widget = QWidget()
         dummy_widget.setLayout(self.view_layout)
+        # Setup initial view
+        self._view_changed(self.current_view_type)
         self.setCentralWidget(dummy_widget)
         self.setWindowTitle(app.__APP_NAME__)
         self.setMinimumWidth(768)
@@ -138,20 +139,21 @@ class MediaLibApp(QMainWindow):
                     app.logger.debug("User canceled this action")
 
     def _path_changed(self, path):
-        def swap_view(new_view):
-            self.view_layout.replaceWidget(self.current_view, new_view)
-            del self.current_view
-            self.current_view = new_view
-
         try:
-            app.logger.debug(f"Selection changed to {path}")
-            swap_view(self.current_view_type.view(self.database.get_path_data(path=path, view=self.current_view_type)))
-            self.current_view_path_name.setText(path)
+            s_path = str(path)
+            app.logger.debug(f"Selection changed to {s_path}")
+            data = self.database.get_path_data(path=s_path, view=self.current_view_type)
+            self.current_view.set_model([data], s_path)
+            self.current_view_path_name.setText(s_path)
         except Exception as exception:
             apputils.show_exception(self, exception)
 
     def _view_changed(self, view: ViewType):
         app.logger.debug(f"View changed {view}")
+        new_view = view.view()
+        self.view_layout.replaceWidget(self.current_view, new_view)
+        del self.current_view
+        self.current_view = new_view
         self.current_view_type = view
         self.current_view_type_label.setText(view.name)
         # If a path is being viewed, reload it

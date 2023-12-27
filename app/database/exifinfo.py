@@ -1,6 +1,5 @@
 import shutil
 import subprocess
-import tempfile
 from enum import Enum, StrEnum
 from pathlib import Path
 
@@ -49,24 +48,23 @@ class ExifInfoFormat(Enum):
 
 class ExifInfoStatus(StrEnum):
     READY = "Ready"
-    WAITING = "Waiting"
+    WORKING = "Working"
+    INITIALIZED = "Initialized"
 
 
 class ExifInfo:
     DATA_ENCODING = "utf-8"
 
-    def __init__(self, file, fmt: ExifInfoFormat = ExifInfoFormat.JSON, output_path: str | None = None):
+    def __init__(self, file, fmt: ExifInfoFormat = ExifInfoFormat.JSON, save_file: str | None = None):
         super().__init__()
         test_exiftool()
         self._file = file
         self._format = fmt
         self._cmd = self._create_command(file, fmt)
-        if output_path is None:
-            self._output_file = tempfile.NamedTemporaryFile().name
-        else:
-            self._output_file = output_path
-        self._status = self._capture_exif_data(file, self._cmd, self._output_file)
+        self._status = ExifInfoStatus.INITIALIZED
+        self._save_file = save_file
         self._data = ""
+        self._capture_exif_data(file, self._cmd, self._save_file)
 
     @property
     def file(self):
@@ -77,22 +75,33 @@ class ExifInfo:
         return self._format
 
     @property
+    def status(self):
+        return self._status
+
+    @property
     def data(self):
-        if self._data == "":
-            app.logger.debug(f"Loading data from file {self._output_file}")
-            self._data = Path(self._output_file).read_text(encoding=self.DATA_ENCODING)
-        return self._data
+        match self.status:
+            case ExifInfoStatus.WORKING:
+                # If service is still working, raise an error
+                raise ValueError("Service is not ready to return data")
+            case ExifInfoStatus.READY:
+                # If service is ready to return data
+                if self._save_file is not None and self._data == "":
+                    # Data has to be loaded into memory from disk
+                    app.logger.debug(f"Loading data from file {self._save_file}")
+                    self._data = Path(self._save_file).read_text(encoding=self.DATA_ENCODING)
+                return self._data
+            case ExifInfoStatus.INITIALIZED:
+                # First time data fetch
+                self._status = self._capture_exif_data(self._file, self._cmd, self._save_file)
+                # Rerun all property checks and return the data
+                return self.data
 
     @property
     def command(self):
         return self._cmd
 
-    @property
-    def output_file(self):
-        return self._output_file
-
-    @staticmethod
-    def _capture_exif_data(file: str, cmd: list, output_file: str) -> ExifInfoStatus:
+    def _capture_exif_data(self, file: str, cmd: list, output_file: str) -> ExifInfoStatus:
         p_file = Path(file)
         if not p_file.exists():
             raise ValueError(f"Input {file} does not exist. Unable to proceed")
@@ -102,7 +111,18 @@ class ExifInfo:
             raise ValueError(f"Input {file} is not in the list of supported formats.\n{SUPPORTED_FORMATS}")
 
         app.logger.info(f"Exiftool to run with the command: {cmd}")
+        self._status = ExifInfoStatus.WORKING
+        if output_file is not None:
+            self._setup_file_process(command=cmd, output_file=output_file)
+        else:
+            proc = subprocess.run(cmd, capture_output=True, text=True)
+            self._data = proc.stdout
 
+        app.logger.debug(f"Exiftool command completed.")
+        self._status = ExifInfoStatus.READY
+
+    @staticmethod
+    def _setup_file_process(command, output_file):
         output_file_obj = Path(output_file)
         if not output_file_obj.exists():
             app.logger.debug(f"{output_file_obj} does not exist. It will be created")
@@ -113,10 +133,8 @@ class ExifInfo:
         # Write to output file
         app.logger.debug(f"Writing output to file {output_file}")
         with output_file_obj.open("w", encoding=ExifInfo.DATA_ENCODING) as f_out:
-            proc = subprocess.run(cmd, stdout=f_out, text=True)
-            # proc.check_returncode()
-        app.logger.debug(f"Exiftool command completed. Check returned data")
-        return ExifInfoStatus.READY
+            proc = subprocess.run(command, stdout=f_out, text=True)
+        return proc
 
     @staticmethod
     def _create_command(file: str, _format: ExifInfoFormat):

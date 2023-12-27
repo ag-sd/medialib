@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import QMenuBar, QMenu, QDockWidget
 import app
 from app import views
 from app.database.dbutils import Database
+from app.database.ds import DBType
 from app.views import ViewType
 
 
@@ -88,7 +89,7 @@ class AppMenuBar(QMenuBar):
     def __init__(self, database: Database, db_registry: QDockWidget, db_search: QDockWidget):
         super().__init__()
         self.db_menu = self._create_database_menu(database)
-        self.view_menu = self._create_view_menu(database)
+        self.view_menu = self._create_view_menu()
         self.addMenu(self._create_file_menu())
         self.addMenu(self.db_menu)
         self.addMenu(self.view_menu)
@@ -105,10 +106,11 @@ class AppMenuBar(QMenuBar):
         for item in paths:
             self._add_path(paths_menu, item)
 
-    def _create_view_menu(self, database: Database):
+    def _create_view_menu(self):
         # TODO: Test
         view_menu = QMenu("&View", self)
-        for i, v in enumerate(database.views):
+
+        for i, v in enumerate(ViewType):
             view_menu.addAction(_create_action(self, v.name, func=self.raise_view_event, icon=v.icon,
                                                shortcut=f"Alt+Shift+{i + 1}", tooltip=v.description))
 
@@ -120,7 +122,7 @@ class AppMenuBar(QMenuBar):
         save_action = _create_action(self, DBAction.SAVE, shortcut="Ctrl+S", icon="document-save",
                                      tooltip="Save the exif data of all open paths to the DB", func=self.raise_db_event)
         # You can only save to an existing database. Default databases need to be 'saved as'
-        save_action.setEnabled(not database.is_default)
+        save_action.setEnabled(not database.type == DBType.IN_MEMORY)
         db_menu.addAction(save_action)
         db_menu.addAction(_create_action(self, DBAction.SAVE_AS, shortcut="Ctrl+Shift+S", icon="document-save-as",
                                          tooltip="Save the exif data of all open paths to the DB",
