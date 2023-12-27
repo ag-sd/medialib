@@ -1,10 +1,10 @@
-from PyQt6.QtCore import Qt, QSize, QRegularExpression
-from PyQt6.QtGui import QIcon, QRegularExpressionValidator
-from PyQt6.QtWidgets import QDialog, QLineEdit, QApplication, QPushButton, QVBoxLayout, QGroupBox, \
-    QHBoxLayout, QWidget, QLabel, QComboBox, QListWidget, QDialogButtonBox
+from PyQt6.QtCore import Qt, QRegularExpression, QTimer, pyqtSignal
+from PyQt6.QtGui import QIcon, QRegularExpressionValidator, QFontDatabase
+from PyQt6.QtWidgets import QDialog, QLineEdit, QApplication, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QLabel, \
+    QComboBox, QListWidget, QDialogButtonBox, QDockWidget, QTabWidget, QLayout, \
+    QListWidgetItem
 
 import app
-import appsettings
 import apputils
 import views
 from app.views import ViewType
@@ -12,83 +12,25 @@ from database import dbutils
 from database.dbutils import DatabaseType, Database
 
 
-class DatabaseSaveModal(QDialog):
-    def __init__(self, parent, database: Database, save_mode: str):
-        super().__init__(parent)
-        self.db = database
-        self.save_mode = save_mode
-
+class DatabasePropertyWidget(QWidget):
+    def __init__(self):
+        """
+        Displays the properties of a database
+        """
+        super().__init__()
         self.db_name = QLineEdit()
         self.db_type = QComboBox()
-
-        self.db_unregistered_path = QLineEdit()
-        self.db_unregistered_path_button = QPushButton("...")
-        self.db_unregistered_path_select = QWidget()
-
+        self.db_save_path = QLineEdit()
+        self.db_save_path_button = QPushButton()
+        self.db_created = QLabel("Created")
+        self.db_updated = QLabel("Updated")
         self.db_paths = QListWidget()
         self.db_views = QListWidget()
 
+        self._configure_ui()
         self._init_ui()
-        self._db_type_changed()
-        if database is not None:
-            app.logger.debug(f"Loading view for database {database}")
-            self.load_database(database)
 
-    def _init_ui(self):
-        rx = QRegularExpression("^[a-zA-z0-9_-]+$")
-        self.db_name.setPlaceholderText("Database Name")
-        self.db_name.setValidator(QRegularExpressionValidator(rx))
-
-        self.db_unregistered_path_button.clicked.connect(self._db_path_selection_button_press)
-        self.db_unregistered_path.setReadOnly(True)
-        db_path_selector_layout = QHBoxLayout()
-        db_path_selector_layout.setContentsMargins(0, 0, 0, 0)
-        db_path_selector_layout.addWidget(self.db_unregistered_path, 90)
-        db_path_selector_layout.addWidget(self.db_unregistered_path_button, 10)
-        self.db_unregistered_path_select.setLayout(db_path_selector_layout)
-
-        db_type_description = QLabel(f"<p> </p><p><b>About Database Types...</b></p>"
-                                     f"<p>A registered database will be stored in {app.__APP_NAME__}'s internal "
-                                     f"library, so that it is always accessible.</p>"
-                                     f"<p>An unregistered database is stored in a location of your choice "
-                                     f"(like a removable disk), and can be opened if {app.__APP_NAME__} "
-                                     f"can discover that location.")
-        db_type_description.setWordWrap(True)
-
-        self.db_type.setEditable(False)
-        self.db_type.addItems([v for v in DatabaseType])
-        self.db_type.currentTextChanged.connect(self._db_type_changed)
-        type_and_description_layout = QVBoxLayout()
-        type_and_description_layout.addWidget(self.db_type, 50)
-        type_and_description_layout.addWidget(self.db_unregistered_path_select)
-        type_and_description_layout.addWidget(db_type_description, 50)
-
-        gb = QGroupBox("Select Database Type")
-        gb.setLayout(type_and_description_layout)
-
-        list_layout = QHBoxLayout()
-        # TODO: Make this style dependent
-        self.db_paths.setIconSize(QSize(16, 16))
-        self.db_views.setIconSize(QSize(16, 16))
-        list_layout.addWidget(self.db_paths, 70)
-        # list_layout.addWidget(self.db_views, 30)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Save,
-                                   Qt.Orientation.Horizontal, self)
-        buttons.rejected.connect(self.close)
-        buttons.accepted.connect(self._save_action_triggered)
-
-        main_layout = QVBoxLayout()
-        main_layout.addWidget(self.db_name)
-        main_layout.addWidget(gb)
-        main_layout.addLayout(list_layout)
-        main_layout.addWidget(buttons)
-
-        self.setLayout(main_layout)
-        self.setWindowIcon(QIcon("medialib-icon"))
-        self.setWindowTitle(self.save_mode)
-
-    def load_database(self, database: Database):
+    def set_database(self, database: Database):
         def path_icon_provider(path):
             icon_name = views.get_mime_type_icon_name(path)
             return views.get_mime_type_icon(icon_name)
@@ -96,68 +38,222 @@ class DatabaseSaveModal(QDialog):
         def view_icon_provider(view_name):
             return QIcon.fromTheme(ViewType[view_name].icon)
 
-        def make_checkable(list_widget, icon_provider=None):
+        def add_data(list_widget, data, icon_provider):
+            for datum in data:
+                item = QListWidgetItem(icon_provider(datum), datum, list_widget)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Checked)
+
+        self.db_name.setText(database.name)
+        self.db_type.setCurrentText(database.type)
+        self.db_save_path.setText(database.save_path)
+        self.db_created.setText(database.created if database.created is not None else "")
+        self.db_updated.setText(database.updated if database.updated is not None else "")
+        add_data(self.db_paths, database.paths, path_icon_provider)
+        add_data(self.db_views, [v.name for v in database.views], view_icon_provider)
+        self._db_type_changed()
+
+    def get_database(self) -> Database:
+
+        def get_view(name):
+            return ViewType[name]
+
+        def get_list(list_widget, cast):
+            items = []
             for i in range(list_widget.count()):
                 entry = list_widget.item(i)
-                entry.setFlags(entry.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                entry.setCheckState(Qt.CheckState.Checked)
-                if icon_provider is not None:
-                    entry.setIcon(icon_provider(entry.text()))
+                if entry.checkState() == Qt.CheckState.Checked:
+                    items.append(cast(entry.text()))
+            return items
 
-        if not database.is_default:
-            self.db_name.setText(database.name)
+        return Database(
+            is_default=self.db_name.text() == dbutils.DEFAULT_DB_NAME,
+            database_name=self.db_name.text(),
+            save_path=None if self.db_save_path.text() == "" else self.db_save_path.text(),
+            paths=get_list(self.db_paths, str),
+            views=get_list(self.db_views, get_view),
+            database_type=DatabaseType(self.db_type.currentText())
+        )
 
-        self.db_type.setCurrentText(database.type)
+    def _init_ui(self):
+        tabs = QTabWidget()
+        tabs.addTab(self._wrap_widget(self.db_paths), "Paths")
+        tabs.addTab(self._wrap_widget(self.db_views), "Views")
+        tabs.addTab(self._get_details_panel(), "Details")
 
-        self.db_paths.addItems(database.paths)
-        make_checkable(self.db_paths, path_icon_provider)
+        main_layout = QVBoxLayout()
+        main_layout.addWidget(self.db_name)
+        main_layout.addWidget(tabs)
+        main_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.db_views.addItems([v.name for v in ViewType])
-        make_checkable(self.db_views, view_icon_provider)
+        self.setLayout(main_layout)
 
-    def _save_action_triggered(self):
-        paths = []
-        for i in range(self.db_paths.count()):
-            entry = self.db_paths.item(i)
-            if entry.checkState() == Qt.CheckState.Checked:
-                paths.append(entry.text())
+    def _configure_ui(self):
+        rx = QRegularExpression("^[a-zA-z0-9_-]+$")
+        self.db_name.setPlaceholderText("Database Name")
+        self.db_name.setValidator(QRegularExpressionValidator(rx))
+        # self.db_name.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.TitleFont))
 
-        db_type = DatabaseType(self.db_type.currentText())
-        if db_type == DatabaseType.UNREGISTERED:
-            save_path = self.db_unregistered_path.text()
-        else:
-            save_path = str(appsettings.get_registry_dir() / self.db_name.text())
+        self.db_type.setEditable(False)
+        self.db_type.addItem(QIcon.fromTheme("folder"), DatabaseType.REGISTERED,
+                             f"<p>A registered database will be stored in {app.__APP_NAME__}'s internal"
+                             f" library, so that it is always accessible.</p>")
+        self.db_type.addItem(QIcon.fromTheme("folder-remote"), DatabaseType.UNREGISTERED,
+                             f"<p>An unregistered database is stored in a location of your choice "
+                             f"(like a removable disk), and can be opened if {app.__APP_NAME__} "
+                             f"can discover that location.</p>")
+        self.db_type.currentTextChanged.connect(self._db_type_changed)
 
-        try:
-            app.logger.info(f"Creating a {db_type.value} database {self.db_name.text()} with {len(paths)} paths")
-            save_db = Database(
-                is_default=False,
-                database_type=db_type,
-                save_path=save_path,
-                database_name=self.db_name.text(),
-                paths=paths,
-                views=[ViewType.JSON]
-            )
-            app.logger.info(f"Saving database")
-            save_db.save()
-            if save_db.type == DatabaseType.REGISTERED:
-                app.logger.info("Registering database")
-                dbutils.get_registry().add(save_db)
-                dbutils.get_registry().commit()
-            app.logger.info(f"Complete")
-        except ValueError as v:
-            apputils.show_exception(parent=self, exception=v)
+        self.db_created.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        self.db_updated.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+
+    @staticmethod
+    def _wrap_widget(widget) -> QWidget:
+        layout = QVBoxLayout()
+        layout.addWidget(widget)
+        layout.insertStretch(-1, 1)
+        layout.setContentsMargins(5, 5, 5, 5)
+        widget = QWidget()
+        widget.setLayout(layout)
+        return widget
+
+    def _get_details_panel(self) -> QWidget:
+        self.db_save_path_button.setIcon(QIcon.fromTheme("document-save"))
+        self.db_save_path.setReadOnly(True)
+        save_path_layout = QHBoxLayout()
+        save_path_layout.setContentsMargins(0, 0, 0, 0)
+        save_path_layout.addWidget(self.db_save_path, 90)
+        save_path_layout.addWidget(self.db_save_path_button, 10)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.db_type)
+        layout.addLayout(save_path_layout)
+        layout.addWidget(self.db_created)
+        layout.addWidget(self.db_updated)
+        layout.insertStretch(-1, 1)
+        layout.setContentsMargins(5, 5, 5, 5)
+        widget = QWidget()
+        widget.setLayout(layout)
+        return widget
 
     def _db_type_changed(self):
         app.logger.debug(f"DB type changed to {self.db_type.currentText()}")
-        self.db_unregistered_path_select.setVisible(
-            DatabaseType(self.db_type.currentText()) == DatabaseType.UNREGISTERED)
+        db_type = DatabaseType(self.db_type.currentText())
+        self.db_save_path_button.setVisible(db_type == DatabaseType.UNREGISTERED)
+        self.db_type.setToolTip(self.db_type.currentData(Qt.ItemDataRole.UserRole))
 
-    def _db_path_selection_button_press(self):
-        db_dir = apputils.get_new_paths(self, is_dir=True)
-        if len(db_dir):
-            app.logger.debug(f"Database save path changed to {db_dir[0]}")
-            self.db_unregistered_path.setText(db_dir[0])
+
+class DatabaseSaveModal(QDialog):
+    def __init__(self, parent, window_title: str):
+        super().__init__(parent)
+        self.db_props = DatabasePropertyWidget()
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Save,
+                                   Qt.Orientation.Horizontal, self)
+        buttons.rejected.connect(self.reject)
+        buttons.accepted.connect(self.accept)
+
+        main_layout = QVBoxLayout()
+        main_layout.addWidget(self.db_props)
+        main_layout.addWidget(buttons)
+
+        self.setLayout(main_layout)
+        self.setWindowIcon(QIcon("medialib-icon"))
+        self.setWindowTitle(window_title)
+
+    def set_database(self, database: Database):
+        self.db_props.set_database(database)
+
+    def get_database(self):
+        return self.db_props.get_database()
+
+    def accept(self):
+        try:
+            # Validate
+            self.get_database()
+        except ValueError as v:
+            apputils.show_exception(parent=self, exception=v)
+
+
+class DatabaseRegistryBrowser(QDockWidget):
+    def __init__(self):
+        super().__init__()
+        self.db_props = DatabasePropertyWidget()
+        self.db_saves = QListWidget()
+        self.db_saves.itemClicked.connect(self._db_clicked)
+        self.load_registry()
+
+        self._update_ui()
+        self.setWindowTitle("Database Registry")
+
+    def load_registry(self):
+        registry = dbutils.get_registry()
+        for db in registry.databases:
+            QListWidgetItem(QIcon.fromTheme("database-registry"), db, self.db_saves)
+
+    def get_database(self):
+        pass
+
+    def save_database(self, database: Database):
+        pass
+
+    def update_database(self, database: Database):
+        pass
+
+    def resizeEvent(self, event):
+        switch_ratio = 1.7  # 16:9
+
+        current_size = event.size()
+        current_ratio = current_size.width() / current_size.height()
+
+        previous_size = event.oldSize()
+        previous_ratio = previous_size.width() / previous_size.height()
+
+        if previous_ratio <= switch_ratio < current_ratio:
+            self._update_ui(QHBoxLayout())
+        elif previous_ratio >= switch_ratio > current_ratio:
+            self._update_ui(QVBoxLayout())
+        super().resizeEvent(event)
+
+    def _update_ui(self, layout: QLayout = QVBoxLayout()):
+        layout.addWidget(self.db_saves, 60)
+        layout.addWidget(self.db_props, 40)
+        layout_container = QWidget()
+        layout_container.setLayout(layout)
+        self.setWidget(layout_container)
+
+    def _db_clicked(self, item):
+        db_name = item.text()
+        self.db_props.set_database(dbutils.get_registry().get(db_name))
+
+
+class DatabaseSearch(QDockWidget):
+    search_event = pyqtSignal(dict)
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Search")
+        self.search_text = QLineEdit()
+        self.search_text.textChanged.connect(self.text_changed)
+
+        self.search_type_backoff = QTimer()
+        self.search_type_backoff.setSingleShot(True)
+        self.search_type_backoff.timeout.connect(self.trigger_search_request)
+
+        layout = QHBoxLayout()
+        layout.addWidget(self.search_text)
+        layout_container = QWidget()
+        layout_container.setLayout(layout)
+        self.setWidget(layout_container)
+
+    def text_changed(self):
+        # Backoff triggering any events for 500ms after the user started typing
+        self.search_type_backoff.start(400)
+
+    def trigger_search_request(self):
+        app.logger.debug(f"Trigger search for sting `{self.search_text.text()}`")
+        self.search_event.emit({
+            "text": self.search_text.text()
+        })
+
 
 
 if __name__ == '__main__':
@@ -165,11 +261,19 @@ if __name__ == '__main__':
 
     xapp = QApplication(sys.argv)
 
-    ex = DatabaseSaveModal(None, Database.create_default(
-        ["/home/sheldon/.cddb",
-         "/mnt/dev/testing",
-         "/mnt/dev/art-of-being",
-         "/home/sheldon/Downloads/art-of-being/images/slider-img3.jpg"
-         ]), save_mode="sds")
+    # ex = DatabaseSaveModal(None, Database.create_default(
+    #     ["/home/sheldon/.cddb",
+    #      "/mnt/dev/testing",
+    #      "/mnt/dev/art-of-being",
+    #      "/home/sheldon/Downloads/art-of-being/images/slider-img3.jpg"
+    #      ]), save_mode="TESTING MODE")
+    ex = DatabaseRegistryBrowser()
+    # ex.set_database(Database.create_default(
+    #     ["/home/sheldon/.cddb",
+    #      "/mnt/dev/testing",
+    #      "/mnt/dev/art-of-being",
+    #      "/home/sheldon/Downloads/art-of-being/images/slider-img3.jpg"
+    #      ]))
+    # print(ex.get_database())
     ex.show()
     sys.exit(xapp.exec())
