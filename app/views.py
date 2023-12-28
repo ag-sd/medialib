@@ -1,5 +1,5 @@
-import json
 from abc import abstractmethod
+from dataclasses import dataclass
 from enum import Enum
 
 from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex, QVariant, QPersistentModelIndex, QMimeDatabase, \
@@ -51,6 +51,11 @@ def get_mime_type_icon(mime_type_icon_name: str):
 #         super().__init__()
 #         self.setHtml(html_str_data)
 
+@dataclass
+class ModelData:
+    json: list
+    path: str
+
 
 class ModelManager:
     def __init__(self):
@@ -58,7 +63,7 @@ class ModelManager:
         self._proxy_model = None
 
     @abstractmethod
-    def set_model(self, jsons: list, title: str):
+    def set_model(self, model_data: list):
         raise NotImplemented
 
     def search(self, search_context):
@@ -79,12 +84,13 @@ class JsonView(QTreeView, ModelManager):
         self.setSelectionBehavior(QTreeView.SelectionBehavior.SelectRows)
         self.setAlternatingRowColors(True)
 
-    def set_model(self, jsons: list, title: str):
+    def set_model(self, model_data: list):
         p_model = QStandardItemModel()
         p_model.setColumnCount(2)
         p_model.setHeaderData(0, Qt.Orientation.Horizontal, "Key")
         p_model.setHeaderData(1, Qt.Orientation.Horizontal, "Data")
-        self._build(p_model.invisibleRootItem(), title, json.loads(jsons[0]))
+        for data in model_data:
+            self._build(p_model.invisibleRootItem(), data.path, data.json)
         self.setModel(self._create_proxy_model(p_model))
         self.expandAll()
         self.resizeColumnToContents(0)
@@ -119,18 +125,16 @@ class TableView(QTableView, ModelManager):
     # https://stackoverflow.com/questions/57764723/make-an-active-search-with-qlistwidget
     # https://stackoverflow.com/questions/20563826/pyqt-qtableview-search-by-hiding-rows
     class TableModel(QAbstractTableModel):
-        def __init__(self, jsons: list, title: str):
+        def __init__(self, model_data: list):
             super().__init__()
             self._exif_data = []
             self._exif_cols = []
             self._QStandardItem_cache = {}
-            self._title = title
-            self._orientation = self._orientation(jsons)
+            self._orientation = self._orientation(model_data)
 
             all_keys = []
-            for _json in jsons:
-                json_data = json.loads(_json)
-                for entry in json_data:
+            for data in model_data:
+                for entry in data.json:
                     all_keys.extend(list(entry.keys()))
                     self._exif_data.append(entry)
             self._exif_cols = list(dict.fromkeys(all_keys))
@@ -190,10 +194,9 @@ class TableView(QTableView, ModelManager):
             return item
 
         @staticmethod
-        def _orientation(jsons: list) -> Qt.Orientation:
-            if len(jsons) == 1:
-                data = json.loads(jsons[0])
-                if len(data) == 1:
+        def _orientation(model_data: list) -> Qt.Orientation:
+            if len(model_data) == 1:
+                if len(model_data[0].json) == 1:
                     app.logger.debug("Displaying in Vertical Mode")
                     return Qt.Orientation.Vertical
             app.logger.debug("Displaying in Horizontal Mode")
@@ -214,12 +217,11 @@ class TableView(QTableView, ModelManager):
         self.horizontalHeader().setSectionsClickable(True)
         self.setSortingEnabled(True)
 
-    def set_model(self, jsons: list, title: str):
-        p_model = self.TableModel(jsons, "TEST")
+    def set_model(self, model_data: list):
+        p_model = self.TableModel(model_data)
         self.setModel(self._create_proxy_model(p_model))
         # self.resizeColumnsToContents()
         # self.resizeRowsToContents()
-
 
 
 class ViewType(Enum):
