@@ -1,3 +1,4 @@
+import json
 import shutil
 import subprocess
 from enum import Enum, StrEnum
@@ -89,7 +90,7 @@ class ExifInfo:
                 if self._save_file is not None and self._data == "":
                     # Data has to be loaded into memory from disk
                     app.logger.debug(f"Loading data from file {self._save_file}")
-                    self._data = Path(self._save_file).read_text(encoding=self.DATA_ENCODING)
+                    self._data = json.loads(Path(self._save_file).read_text(encoding=self.DATA_ENCODING))
                 return self._data
             case ExifInfoStatus.INITIALIZED:
                 # First time data fetch
@@ -116,10 +117,11 @@ class ExifInfo:
             self._setup_file_process(command=cmd, output_file=output_file)
         else:
             proc = subprocess.run(cmd, capture_output=True, text=True)
-            self._data = proc.stdout
+            self._data = json.loads(proc.stdout)
 
         app.logger.debug(f"Exiftool command completed.")
         self._status = ExifInfoStatus.READY
+        return self._status
 
     @staticmethod
     def _setup_file_process(command, output_file):

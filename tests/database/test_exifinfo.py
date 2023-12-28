@@ -12,18 +12,18 @@ class TestExifInfo(unittest.TestCase):
         tmp = Path(tempfile.NamedTemporaryFile(suffix='.jpeg').name)
         tmp.touch()
         test_info = ExifInfo(file=str(tmp), fmt=ExifInfoFormat.JSON)
-        js = json.loads(test_info.data)[0]
+        js = test_info.data[0]
         self.assertEqual(js['SourceFile'], str(tmp))
-        self.assertEqual(js['ExifTool']['Error'], "File is empty")
+        self.assertEqual(js['ExifTool:Error'], "File is empty")
 
     def test_get_data_from_file(self):
         tmp = Path(tempfile.NamedTemporaryFile(suffix='.jpeg').name)
         tmp.touch()
         output = tempfile.NamedTemporaryFile(suffix='.output').name
         test_info = ExifInfo(file=str(tmp), fmt=ExifInfoFormat.JSON, save_file=str(output))
-        js = json.loads(test_info.data)[0]
+        js = test_info.data[0]
         self.assertEqual(js['SourceFile'], str(tmp))
-        self.assertEqual(js['ExifTool']['Error'], "File is empty")
+        self.assertEqual(js['ExifTool:Error'], "File is empty")
 
         output_contents = Path(output).read_text(encoding="utf-8")
         js2 = json.loads(output_contents)[0]
