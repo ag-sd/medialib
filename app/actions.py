@@ -7,8 +7,7 @@ from PyQt6.QtWidgets import QMenuBar, QMenu, QDockWidget
 
 import app
 from app import views
-from app.database.dbutils import Database
-from app.database.ds import DBType
+from app.database.ds import DBType, Database
 from app.views import ViewType
 
 
@@ -80,7 +79,7 @@ class DBAction(StrEnum):
 
 class AppMenuBar(QMenuBar):
     view_changed = pyqtSignal(ViewType)
-    path_changed = pyqtSignal(str)
+    paths_changed = pyqtSignal(list)
     medialib_action = pyqtSignal(MediaLibAction)
     database_action = pyqtSignal(DBAction)
 
@@ -111,7 +110,7 @@ class AppMenuBar(QMenuBar):
         view_menu = QMenu("&View", self)
 
         for i, v in enumerate(ViewType):
-            view_menu.addAction(_create_action(self, v.name, func=self.raise_view_event, icon=v.icon,
+            view_menu.addAction(_create_action(self, v.name, func=self._raise_view_event, icon=v.icon,
                                                shortcut=f"Alt+Shift+{i + 1}", tooltip=v.description))
 
         return view_menu
@@ -120,19 +119,19 @@ class AppMenuBar(QMenuBar):
         # TODO: Test
         db_menu = QMenu("&Database", self)
         save_action = _create_action(self, DBAction.SAVE, shortcut="Ctrl+S", icon="document-save",
-                                     tooltip="Save the exif data of all open paths to the DB", func=self.raise_db_event)
+                                     tooltip="Save the exif data of all open paths to the DB", func=self._raise_db_event)
         # You can only save to an existing database. Default databases need to be 'saved as'
         save_action.setEnabled(not database.type == DBType.IN_MEMORY)
         db_menu.addAction(save_action)
         db_menu.addAction(_create_action(self, DBAction.SAVE_AS, shortcut="Ctrl+Shift+S", icon="document-save-as",
                                          tooltip="Save the exif data of all open paths to the DB",
-                                         func=self.raise_db_event))
+                                         func=self._raise_db_event))
         db_menu.addAction(_create_action(self, DBAction.REFRESH, shortcut="F5", icon="view-refresh",
                                          tooltip="Save the exif data of the current paths to the DB",
-                                         func=self.raise_db_event))
+                                         func=self._raise_db_event))
         db_menu.addAction(_create_action(self, DBAction.RESET, icon="view-restore",
                                          tooltip="Reset this database",
-                                         func=self.raise_db_event))
+                                         func=self._raise_db_event))
         db_menu.addSeparator()
 
         paths_menu = QMenu(self._MENU_DATABASE_PATHS, self)
@@ -144,7 +143,7 @@ class AppMenuBar(QMenuBar):
 
         db_menu.addSeparator()
         db_menu.addAction(_create_action(self, DBAction.OPEN_DB, shortcut="Ctrl+D",
-                                         icon="database-open", func=self.raise_db_event,
+                                         icon="database-open", func=self._raise_db_event,
                                          tooltip="Open a non registered private database"))
 
         return db_menu
@@ -161,34 +160,34 @@ class AppMenuBar(QMenuBar):
         if existing is not None:
             app.logger.warning(f"{path} already exists in this database.")
             return
-        menu.addAction(_create_action(self, path, func=self.raise_path_change, icon=views.get_mime_type_icon_name(path),
-                                      shortcut=f"Ctrl+{count + 1}" if count < 9 else None))
+        menu.addAction(_create_action(self, path, func=self._raise_paths_change, icon=views.get_mime_type_icon_name(path),
+                                      shortcut=f"Ctrl+{count + 1}" if count < 9 else None, checked=True))
 
     def _create_file_menu(self):
         # TODO: Test
         file_menu = QMenu("&File", self)
         file_menu.addAction(_create_action(self, MediaLibAction.OPEN_FILE, shortcut="Ctrl+O",
-                                           func=self.raise_menu_event, icon="document-open",
+                                           func=self._raise_menu_event, icon="document-open",
                                            tooltip="Open a file to view its exif data"))
         file_menu.addAction(_create_action(self, MediaLibAction.OPEN_PATH, shortcut="Ctrl+D",
-                                           func=self.raise_menu_event,
+                                           func=self._raise_menu_event,
                                            tooltip="Open a directory to view info of all supported files in it",
                                            icon="document-open-folder"))
         file_menu.addSeparator()
-        file_menu.addAction(_create_action(self, MediaLibAction.SETTINGS, func=self.raise_menu_event,
+        file_menu.addAction(_create_action(self, MediaLibAction.SETTINGS, func=self._raise_menu_event,
                                            shortcut="Ctrl+,", icon="preferences-system",
                                            tooltip=f"Quit {app.__NAME__}"))
         file_menu.addSeparator()
-        file_menu.addAction(_create_action(self, MediaLibAction.APP_EXIT, func=self.raise_menu_event,
+        file_menu.addAction(_create_action(self, MediaLibAction.APP_EXIT, func=self._raise_menu_event,
                                            shortcut="Ctrl+Q", icon="application-exit",
                                            tooltip=f"Quit {app.__NAME__}"))
         return file_menu
 
     def _create_window_menu(self, db_registry: QDockWidget, db_search: QDockWidget):
-        db_reg_action = db_registry.toggleViewAction()
-        db_reg_action.setToolTip("Open the database registry to view saved databases")
-        db_reg_action.setShortcut("Ctrl+Shift+O")
-        db_reg_action.setIcon(QIcon.fromTheme("database-registry"))
+        # db_reg_action = db_registry.toggleViewAction()
+        # db_reg_action.setToolTip("Open the database registry to view saved databases")
+        # db_reg_action.setShortcut("Ctrl+Shift+O")
+        # db_reg_action.setIcon(QIcon.fromTheme("database-registry"))
 
         db_src_action = db_search.toggleViewAction()
         db_src_action.setToolTip("Open the find window to search the current database")
@@ -196,7 +195,7 @@ class AppMenuBar(QMenuBar):
         db_src_action.setIcon(QIcon.fromTheme("find"))
 
         window_menu = QMenu("&Window", self)
-        window_menu.addAction(db_reg_action)
+        # window_menu.addAction(db_reg_action)
         window_menu.addAction(db_src_action)
 
         return window_menu
@@ -204,21 +203,27 @@ class AppMenuBar(QMenuBar):
     def _create_help_menu(self):
         # TODO: Test
         help_menu = QMenu("&Help", self)
-        help_menu.addAction(_create_action(self, MediaLibAction.OPEN_GIT, self.raise_menu_event,
+        help_menu.addAction(_create_action(self, MediaLibAction.OPEN_GIT, self._raise_menu_event,
                                            icon="folder-git", tooltip="Visit this project on GitHub"))
         help_menu.addSeparator()
-        help_menu.addAction(_create_action(self, MediaLibAction.ABOUT, self.raise_menu_event, icon="help-about",
+        help_menu.addAction(_create_action(self, MediaLibAction.ABOUT, self._raise_menu_event, icon="help-about",
                                            tooltip="About this application"))
         return help_menu
 
-    def raise_view_event(self, event):
+    def _raise_view_event(self, event):
         self.view_changed.emit(ViewType[event])
 
-    def raise_menu_event(self, action):
+    def _raise_menu_event(self, action):
         self.medialib_action.emit(MediaLibAction(action))
 
-    def raise_path_change(self, path_name):
-        self.path_changed.emit(path_name)
+    def _raise_paths_change(self, _):
+        paths = []
+        paths_menu = _find_action(self._MENU_DATABASE_PATHS, self.db_menu.actions()).menu()
+        for item in paths_menu.actions():
+            if item.isChecked():
+                paths.append(item.text())
 
-    def raise_db_event(self, action):
+        self.paths_changed.emit(paths)
+
+    def _raise_db_event(self, action):
         self.database_action.emit(DBAction(action))

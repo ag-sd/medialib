@@ -12,8 +12,8 @@ import apputils
 from app.actions import AppMenuBar, MediaLibAction, DBAction
 from app.database import exifinfo
 from app.database.ds import Database
-from app.views import ViewType, TableView
-from database.dbwidgets import DatabaseSaveModal, DatabaseRegistryBrowser, DatabaseSearch
+from app.views import ViewType, TableView, ModelData
+from database.dbwidgets import DatabaseSearch
 
 
 class MediaLibApp(QMainWindow):
@@ -43,13 +43,13 @@ class MediaLibApp(QMainWindow):
         self.current_view_type = ViewType.TABLE if app_args.view is None else ViewType[app_args.view.upper()]
         self.current_view = QWidget()
         self.current_view_type_label = QLabel(self.current_view_type.name)
-        self.current_view_type_label.setContentsMargins(15, 0, 15, 0)
         self.current_view_db_name = QLabel(self.database.name)
-        self.current_view_path_name = QLabel("")
+        self.current_view_details = QLabel("")
+        # self.current_view_details.setContentsMargins(15, 0, 15, 0)
 
-        self.db_registry = DatabaseRegistryBrowser()
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.db_registry)
-        self.db_registry.setVisible(False)  # Switched off by default
+        # self.db_registry = DatabaseRegistryBrowser()
+        # self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.db_registry)
+        # self.db_registry.setVisible(False)  # Switched off by default
 
         self.db_search = DatabaseSearch()
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.db_search)
@@ -59,15 +59,15 @@ class MediaLibApp(QMainWindow):
         self.view_layout = QVBoxLayout()
         self.view_layout.setContentsMargins(2, 2, 2, 2)
         self.view_layout.addWidget(self.current_view)
-        self.statusBar().addPermanentWidget(self.current_view_path_name)
         self.statusBar().addPermanentWidget(self.current_view_type_label)
+        self.statusBar().addPermanentWidget(self.current_view_details)
         self.statusBar().addPermanentWidget(self.current_view_db_name)
 
         # Menu Bar
         app.logger.debug("Configure Menubar ...")
-        self.menubar = AppMenuBar(self.database, self.db_registry, self.db_search)
+        self.menubar = AppMenuBar(self.database, None, self.db_search)
         self.menubar.view_changed.connect(self._view_changed)
-        self.menubar.path_changed.connect(self._path_changed)
+        self.menubar.paths_changed.connect(self._paths_changed)
         self.menubar.medialib_action.connect(self._action_event)
         self.menubar.database_action.connect(self._db_action_event)
         self.setMenuBar(self.menubar)
@@ -87,8 +87,8 @@ class MediaLibApp(QMainWindow):
         self.show()
         # Load the first entry from the database
         if len(self.database.paths) > 0:
-            app.logger.debug("Load first path and present data ...")
-            self._path_changed(self.database.paths[0])
+            app.logger.debug("Load paths and present data ...")
+            self._paths_changed(self.database.paths)
 
     def _action_event(self, event: MediaLibAction):
         app.logger.debug(f"Action triggered {event}")
@@ -101,9 +101,7 @@ class MediaLibApp(QMainWindow):
                     self.database.add_paths(paths)
                     # Add to DB Menu
                     self.menubar.add_db_paths(paths)
-                    # Show the first path
-                    self.statusBar().showMessage(f"Scanning {paths[0]}. Please wait...")
-                    self._path_changed(paths[0])
+                    self._paths_changed(self.database.paths)
                     self.statusBar().showMessage("Ready.", msecs=2000)
                 else:
                     app.logger.debug(f"Cancel action clicked, no paths supplied")
@@ -138,13 +136,15 @@ class MediaLibApp(QMainWindow):
                 else:
                     app.logger.debug("User canceled this action")
 
-    def _path_changed(self, path):
+    def _paths_changed(self, _paths):
         try:
-            s_path = str(path)
-            app.logger.debug(f"Selection changed to {s_path}")
-            data = self.database.get_path_data(path=s_path, view=self.current_view_type)
-            self.current_view.set_model([data], s_path)
-            self.current_view_path_name.setText(s_path)
+            app.logger.debug(f"Selection changed to {_paths}")
+            model_data = []
+            for path in _paths:
+                model_data.append(ModelData(
+                    json=self.database.get_path_data(path=str(path), view=self.current_view_type),
+                    path=path))
+            self._display_model_data(model_data)
         except Exception as exception:
             apputils.show_exception(self, exception)
 
@@ -157,8 +157,15 @@ class MediaLibApp(QMainWindow):
         self.current_view_type = view
         self.current_view_type_label.setText(view.name)
         # If a path is being viewed, reload it
-        if self.current_view_path_name.text() != "":
-            self._path_changed(self.current_view_path_name.text())
+        if self.current_view_details.property("model_data") is not None:
+            self._display_model_data(self.current_view_details.property("model_data"))
+
+    def _display_model_data(self, model_data: list):
+        view_details = f"data for {len(model_data)} path{'s' if len(model_data) > 1 else ''} in"
+        self.current_view.set_model(model_data)
+        self.current_view_details.setText(view_details)
+        self.current_view_details.setProperty("model_data", model_data)
+        app.logger.debug(view_details)
 
     def _get_new_path(self, is_dir=False) -> list:
         exiftool_file_filter = f"ExifTool Supported Files (*.{' *.'.join(exifinfo.SUPPORTED_FORMATS.split(' '))})"
