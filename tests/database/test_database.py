@@ -19,7 +19,7 @@ class TestDatabase(unittest.TestCase):
         db = Database.create_in_memory(paths=tmp_files)
         self.assertEqual(db.type, DBType.IN_MEMORY)
         self.assertIsNone(db.save_path)
-        self.assertEqual(db.name, "Default-db")
+        self.assertEqual(db.name, "default-db")
         self.assertCountEqual(db.paths, tmp_files)
 
     def test_open_database(self):

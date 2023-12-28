@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.database.dbutils import DatabaseRegistry, Database
+from app.database.ds import DatabaseRegistry, Database
 
 
 class TestDbRegistry(unittest.TestCase):
@@ -61,7 +61,7 @@ class TestDbRegistry(unittest.TestCase):
             reg_mock.update(db)
             self.fail("This should fail as this db does not exist in the registry")
         except ValueError as v:
-            self.assertEqual(str(v), "Default-db was not found in this database")
+            self.assertEqual(str(v), "default-db was not found in this database")
 
     def test_update_existing(self):
         reg_mock = self.create_mock_registry()
