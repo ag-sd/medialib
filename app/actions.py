@@ -85,14 +85,14 @@ class AppMenuBar(QMenuBar):
 
     _MENU_DATABASE_PATHS = "Database Paths"
 
-    def __init__(self, database: Database, db_registry: QDockWidget, db_search: QDockWidget):
+    def __init__(self, database: Database, plugins: list):
         super().__init__()
         self.db_menu = self._create_database_menu(database)
         self.view_menu = self._create_view_menu()
         self.addMenu(self._create_file_menu())
         self.addMenu(self.db_menu)
         self.addMenu(self.view_menu)
-        self.addMenu(self._create_window_menu(db_registry, db_search))
+        self.addMenu(self._create_window_menu(plugins))
         self.addMenu(self._create_help_menu())
 
     def add_db_paths(self, paths):
@@ -183,20 +183,15 @@ class AppMenuBar(QMenuBar):
                                            tooltip=f"Quit {app.__NAME__}"))
         return file_menu
 
-    def _create_window_menu(self, db_registry: QDockWidget, db_search: QDockWidget):
-        # db_reg_action = db_registry.toggleViewAction()
-        # db_reg_action.setToolTip("Open the database registry to view saved databases")
-        # db_reg_action.setShortcut("Ctrl+Shift+O")
-        # db_reg_action.setIcon(QIcon.fromTheme("database-registry"))
-
-        db_src_action = db_search.toggleViewAction()
-        db_src_action.setToolTip("Open the find window to search the current database")
-        db_src_action.setShortcut("Ctrl+F")
-        db_src_action.setIcon(QIcon.fromTheme("find"))
-
+    def _create_window_menu(self, plugins: list):
         window_menu = QMenu("&Window", self)
-        # window_menu.addAction(db_reg_action)
-        window_menu.addAction(db_src_action)
+
+        for plugin in plugins:
+            pl_action = plugin.toggleViewAction()
+            pl_action.setToolTip("Open the find window to search the current database")
+            pl_action.setShortcut("Ctrl+F")
+            pl_action.setIcon(QIcon.fromTheme("find"))
+            window_menu.addAction(pl_action)
 
         return window_menu
 
