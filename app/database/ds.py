@@ -49,6 +49,7 @@ class Database:
         self._created = created
         self._updated = updated
         self._path_cache = {}
+        self._tags = []
         self._validate_database(self)
 
     @property
@@ -75,6 +76,10 @@ class Database:
     def updated(self):
         return self._updated
 
+    @property
+    def tags(self):
+        return self._tags
+
     def data(self, path: str, view: ViewType = ViewType.JSON):
         """
         Checks if the path is in cache, if present, returns its data. if missing, and this is a in memory database,
@@ -94,10 +99,12 @@ class Database:
             if self.type == DBType.IN_MEMORY:
                 info = ExifInfo(path, view.format)
                 self._path_cache[key] = info.data
+                self._tags = list(dict.fromkeys(self._tags + info.tags))
             else:
                 # Fetch data from disk, add to cache and return it
                 out_file = Path(self.save_path) / key
-                self._path_cache[key] = out_file.read_text(encoding=ExifInfo.DATA_ENCODING)
+                self._path_cache[key] = json.loads(out_file.read_text(encoding=ExifInfo.DATA_ENCODING))
+                self._tags = list(dict.fromkeys(self._tags + ExifInfo.get_tags(self._path_cache[key])))
 
         app.logger.debug(f"Returning exif data for '{key}' from cache")
         return self._path_cache[key]
@@ -143,37 +150,37 @@ class Database:
     def __repr__(self):
         return f"Database: [Type: {self.type}] {self._database_name}"
 
-    def get_path_data(self, path: str, view: ViewType, ignore_cache: bool = False, write_to_file=False) -> str:
-        """
-        Checks if the path is in cache, if present, returns its data. if missing, and this is a default database,
-        extracts the exif info and returns it. If its not a default database, returns the data associated with this path
-        :param path: The file to test
-        :param view: The view to return
-        :param ignore_cache: If true, will ignore the entry from the cache and reload the path. Once reloaded, will add
-        it back to the cache for future use
-        :return: The data to represent this path
-        :raises: ValueError if path is not present in database
-        :raises: ValueError if view is not supported for database
-        """
-        # TODO: Test
-        if path not in self._paths:
-            raise ValueError(f"{path} was not found in this database")
-
-        key = self._create_path_key(path, view)
-        if ignore_cache or key not in self._path_cache:
-            app.logger.debug(f"Exif data for '{key}' not in cache. Adding it")
-
-            if write_to_file:
-                out_file = Path(self.save_path) / self._create_path_key(path, ViewType.JSON)
-                app.logger.debug(f"Writing contents of {path} to {out_file}")
-            else:
-                out_file = None
-
-            info = ExifInfo(path, view.format, save_file=out_file)
-            self._path_cache[key] = info.data
-
-        app.logger.debug(f"Returning exif data for '{key}' from cache")
-        return self._path_cache[key]
+    # def get_path_data(self, path: str, view: ViewType, ignore_cache: bool = False, write_to_file=False) -> str:
+    #     """
+    #     Checks if the path is in cache, if present, returns its data. if missing, and this is a default database,
+    #     extracts the exif info and returns it. If its not a default database, returns the data associated with this path
+    #     :param path: The file to test
+    #     :param view: The view to return
+    #     :param ignore_cache: If true, will ignore the entry from the cache and reload the path. Once reloaded, will add
+    #     it back to the cache for future use
+    #     :return: The data to represent this path
+    #     :raises: ValueError if path is not present in database
+    #     :raises: ValueError if view is not supported for database
+    #     """
+    #     # TODO: Test
+    #     if path not in self._paths:
+    #         raise ValueError(f"{path} was not found in this database")
+    #
+    #     key = self._create_path_key(path, view)
+    #     if ignore_cache or key not in self._path_cache:
+    #         app.logger.debug(f"Exif data for '{key}' not in cache. Adding it")
+    #
+    #         if write_to_file:
+    #             out_file = Path(self.save_path) / self._create_path_key(path, ViewType.JSON)
+    #             app.logger.debug(f"Writing contents of {path} to {out_file}")
+    #         else:
+    #             out_file = None
+    #
+    #         info = ExifInfo(path, view.format, save_file=out_file)
+    #         self._path_cache[key] = info.data
+    #
+    #     app.logger.debug(f"Returning exif data for '{key}' from cache")
+    #     return self._path_cache[key]
 
     @staticmethod
     def _validate_database(database):

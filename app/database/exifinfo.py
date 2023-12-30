@@ -64,7 +64,8 @@ class ExifInfo:
         self._cmd = self._create_command(file, fmt)
         self._status = ExifInfoStatus.INITIALIZED
         self._save_file = save_file
-        self._data = ""
+        self._data = None
+        self._tags = None
         self._capture_exif_data(file, self._cmd, self._save_file)
 
     @property
@@ -80,6 +81,12 @@ class ExifInfo:
         return self._status
 
     @property
+    def tags(self):
+        if self._tags is None:
+            self._tags = self.get_tags(self.data)
+        return self._tags
+
+    @property
     def data(self):
         match self.status:
             case ExifInfoStatus.WORKING:
@@ -87,7 +94,7 @@ class ExifInfo:
                 raise ValueError("Service is not ready to return data")
             case ExifInfoStatus.READY:
                 # If service is ready to return data
-                if self._save_file is not None and self._data == "":
+                if self._save_file is not None and self._data is None:
                     # Data has to be loaded into memory from disk
                     app.logger.debug(f"Loading data from file {self._save_file}")
                     self._data = json.loads(Path(self._save_file).read_text(encoding=self.DATA_ENCODING))
@@ -153,6 +160,13 @@ class ExifInfo:
         cmd.extend(_format.args)
 
         return cmd
+
+    @staticmethod
+    def get_tags(json_data):
+        all_tags = []
+        for entry in json_data:
+            all_tags.extend(list(entry.keys()))
+        return list(dict.fromkeys(all_tags))
 
 
 if __name__ == '__main__':
