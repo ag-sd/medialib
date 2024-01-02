@@ -19,10 +19,7 @@ TODO
 
 ### Backlog
 - DB support
-  - Library View
   - Save database
-    - DB Name
-    - DB Paths
     - Supported Views
     - Default View
     - Custom plugins per MimeType i.e Images: Dupe Finder
