@@ -5,15 +5,16 @@ from pathlib import Path
 
 from PyQt6.QtCore import QUrl, Qt
 from PyQt6.QtGui import QDesktopServices, QIcon
-from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, QLabel, QMessageBox, QDialog
+from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, QLabel, QMessageBox, QDialog, QFileDialog
 
 import app
 import apputils
+from app import appsettings
 from app.actions import AppMenuBar, MediaLibAction, DBAction
 from app.database import exifinfo
 from app.database.ds import Database
 from app.views import ViewType, TableView, ModelData
-from database.dbwidgets import DatabaseSearch
+from database.dbwidgets import DatabaseSearch, DatabasePropertyDialog
 
 
 class MediaLibApp(QMainWindow):
@@ -25,31 +26,13 @@ class MediaLibApp(QMainWindow):
             view: The view to start this app with
         """
         super().__init__()
-        # Configure database based on input args
-        # Check if a database is supplied
-        if app_args.database is not None:
-            app.logger.info(f"Loading database {app_args.database}")
-            # paths = database.paths
-            self.database = None
-        elif app_args.paths is not None:
-            app.logger.info(f"Loading paths {app_args.paths}")
-            self.database = Database.create_in_memory(paths=app_args.paths)
-        else:
-            app.logger.warning("Neither a database or paths were provided. App is in reduced feature mode")
-            self.database = Database.create_in_memory(paths=["x"])
-
         # Current View
         app.logger.debug("Setup current view widgets ...")
         self.current_view_type = ViewType.TABLE if app_args.view is None else ViewType[app_args.view.upper()]
         self.current_view = QWidget()
         self.current_view_type_label = QLabel(self.current_view_type.name)
-        self.current_view_db_name = QLabel(self.database.name)
+        self.current_view_db_name = QLabel("")
         self.current_view_details = QLabel("")
-        # self.current_view_details.setContentsMargins(15, 0, 15, 0)
-
-        # self.db_registry = DatabaseRegistryBrowser()
-        # self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.db_registry)
-        # self.db_registry.setVisible(False)  # Switched off by default
 
         self.db_search = DatabaseSearch()
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.db_search)
@@ -65,11 +48,14 @@ class MediaLibApp(QMainWindow):
 
         # Menu Bar
         app.logger.debug("Configure Menubar ...")
-        self.menubar = AppMenuBar(self.database, None, self.db_search)
+        self.menubar = AppMenuBar(plugins=[self.db_search])
+        self.menubar.update_recents(appsettings.get_recently_opened_databases())
+        self.menubar.update_bookmarks(appsettings.get_bookmarks())
         self.menubar.view_changed.connect(self._view_changed)
         self.menubar.paths_changed.connect(self._paths_changed)
         self.menubar.medialib_action.connect(self._action_event)
         self.menubar.database_action.connect(self._db_action_event)
+        self.menubar.open_db_action.connect(self._open_database)
         self.setMenuBar(self.menubar)
 
         # Setup App
@@ -85,10 +71,30 @@ class MediaLibApp(QMainWindow):
         self.setWindowIcon(QIcon.fromTheme("medialib-icon"))
         # Present App
         self.show()
+
+        # Configure database based on input args
+        # Check if a database is supplied
+        if app_args.database is not None:
+            app.logger.info(f"Loading database {app_args.database}")
+            self.database = Database.open_db(app_args.database)
+        elif app_args.paths is not None:
+            app.logger.info(f"Loading paths {app_args.paths}")
+            self.database = Database.create_in_memory(paths=app_args.paths)
+        else:
+            app.logger.warning("Neither a database or paths were provided. App is in reduced feature mode")
+            self.database = None
+
         # Load the first entry from the database
-        if len(self.database.paths) > 0:
-            app.logger.debug("Load paths and present data ...")
-            self._paths_changed(self.database.paths)
+        if self.database is not None:
+            self.reload_database()
+
+    def reload_database(self):
+        app.logger.debug("Load database and present data ...")
+        # Update Menubar
+        self.menubar.show_database(self.database)
+        # Update display
+        self.current_view_db_name.setText(self.database.name)
+        self._paths_changed(self.database.paths)
 
     def _action_event(self, event: MediaLibAction):
         app.logger.debug(f"Action triggered {event}")
@@ -97,10 +103,16 @@ class MediaLibApp(QMainWindow):
                 paths = self._get_new_path(is_dir=True if event == MediaLibAction.OPEN_PATH else False)
                 if len(paths) > 0:
                     app.logger.debug(f"User supplied {len(paths)} additional paths {paths}")
-                    # Add to database
-                    self.database.add_paths(paths)
-                    # Add to DB Menu
-                    self.menubar.add_db_paths(paths)
+                    if self.database is None:
+                        # Add to new database
+                        self.database = Database.create_in_memory(paths)
+                        # Load Database
+                        self.reload_database()
+                    else:
+                        # Add to existing database
+                        self.database.add_paths(paths)
+                        # Add to DB Menu
+                        self.menubar.add_db_paths(paths)
                     self._paths_changed(self.database.paths)
                     self.statusBar().showMessage("Ready.", msecs=2000)
                 else:
@@ -120,21 +132,58 @@ class MediaLibApp(QMainWindow):
     def _db_action_event(self, db_action):
         app.logger.debug(f"DB action triggered {db_action}")
         match db_action:
-            case DBAction.SAVE | DBAction.SAVE_AS:
-                dialog = DatabaseSaveModal(self, window_title=db_action)
-                response_code = dialog.exec()
-                if response_code == QDialog.DialogCode.Accepted:
-                    app.logger.debug("User triggered a save")
-                    save_db = dialog.database
-                    #     app.logger.info(f"Saving database")
-                    #     save_db.save()
-                    #     if save_db.type == DatabaseType.REGISTERED:
-                    #         app.logger.info("Registering database")
-                    #         dbutils.get_registry().add(save_db)
-                    #         dbutils.get_registry().commit()
-                    #     app.logger.info(f"Complete")
+            case DBAction.BOOKMARK:
+                bookmarks = appsettings.get_bookmarks()
+                current_db_is_bookmarked = self.database.save_path in bookmarks
+                if current_db_is_bookmarked:
+                    app.logger.info(f"Removing {self.database.save_path} from bookmarks")
+                    bookmarks.remove(self.database.save_path)
                 else:
-                    app.logger.debug("User canceled this action")
+                    app.logger.info(f"Adding {self.database.save_path} to bookmarks")
+                    bookmarks.append(self.database.save_path)
+
+                appsettings.set_bookmarks(bookmarks)
+                self.menubar.update_bookmarks(bookmarks)
+
+            case DBAction.SAVE | DBAction.SAVE_AS:
+                # First get save location
+                save_location = QFileDialog.getExistingDirectory(self, caption=db_action,
+                                                                 directory=str(appsettings.get_config_dir()))
+                # Then configure the database
+                if save_location != "":
+                    app.logger.debug(f"DB will be saved to {save_location}")
+                    db_props = DatabasePropertyDialog()
+                    db_props.set_database(self.database)
+                    response_code = db_props.exec()
+                    if response_code == QDialog.DialogCode.Accepted:
+                        app.logger.debug("User triggered a save")
+                        # Finally, save it
+                        self.database.save(save_location)
+                        app.logger.info(f"Complete")
+                    else:
+                        app.logger.debug("User canceled path selection action")
+                else:
+                    app.logger.debug("User canceled save action")
+
+            case DBAction.OPEN_DB:
+                # Choose DB to open
+                open_location = QFileDialog.getExistingDirectory(self, caption=db_action,
+                                                                 directory=str(appsettings.get_config_dir()))
+                # Then open it
+                if open_location != "":
+                    self._open_database(open_location)
+
+    def _open_database(self, db_path: str):
+        try:
+            self.database = Database.open_db(db_path)
+            self.reload_database()
+            recents = appsettings.get_recently_opened_databases()
+            appsettings.push_to_list(db_path, recents, appsettings.get_recent_max_size())
+            appsettings.set_recently_opened_databases(recents)
+            self.menubar.update_recents(recents)
+
+        except Exception as exception:
+            apputils.show_exception(self, exception)
 
     def _paths_changed(self, _paths):
         try:
@@ -142,7 +191,7 @@ class MediaLibApp(QMainWindow):
             model_data = []
             for path in _paths:
                 model_data.append(ModelData(
-                    json=self.database.get_path_data(path=str(path), view=self.current_view_type),
+                    json=self.database.data(path=str(path), view=self.current_view_type),
                     path=path))
             self._display_model_data(model_data)
         except Exception as exception:
@@ -162,7 +211,7 @@ class MediaLibApp(QMainWindow):
 
     def _display_model_data(self, model_data: list):
         view_details = f"data for {len(model_data)} path{'s' if len(model_data) > 1 else ''} in"
-        self.current_view.set_model(model_data)
+        self.current_view.set_model(model_data, self.database.tags)
         self.current_view_details.setText(view_details)
         self.current_view_details.setProperty("model_data", model_data)
         app.logger.debug(view_details)

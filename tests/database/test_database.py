@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.database.ds import Database, DBType
+from app.database.ds import Database, DBType, Properties
 from app.views import ViewType
 
 
@@ -23,10 +23,18 @@ class TestDatabase(unittest.TestCase):
         self.assertCountEqual(db.paths, tmp_files)
 
     def test_open_database(self):
-        try:
-            Database.open_db("xyz")
-        except NotImplementedError as e:
-            self.assertTrue(str(e) == "Not Implemented")
+        with tempfile.TemporaryDirectory() as db_path:
+            db = Database.create_in_memory(paths=self.get_temp_files(2), save_path=db_path)
+            Properties.write(db)
+            p_db = Database.open_db(db_path)
+
+            self.assertEqual(db.name, p_db.name)
+            self.assertEqual(db.save_path, p_db.save_path)
+            self.assertEqual(db.paths, p_db.paths)
+            self.assertEqual(db.type, p_db.type)
+            self.assertEqual(db.created, p_db.created)
+            self.assertEqual(db.updated, p_db.updated)
+            self.assertEqual(db.tags, p_db.tags)
 
     def test_add_paths_dupe(self):
         tmp_files = self.get_temp_files(3)
@@ -74,5 +82,5 @@ class TestDatabase(unittest.TestCase):
         for i in range(count):
             tmp = Path(tempfile.NamedTemporaryFile().name)
             tmp.touch()
-            files.append(tmp)
+            files.append(str(tmp))
         return files

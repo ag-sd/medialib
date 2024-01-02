@@ -15,12 +15,15 @@ class DBType(StrEnum):
     ON_DISK = "on-disk"
 
 
-class RegistryFields(StrEnum):
-    SAVE_PATH = "save_path"
-    PATHS = "paths"
-    TYPE = "type"
-    CREATED = "created"
-    UPDATED = "updated"
+class Props(StrEnum):
+    DB_SAVE_PATH = "save_path"
+    DB_PATHS = "paths"
+    DB_TYPE = "db_type"
+    DB_CREATED = "created"
+    DB_UPDATED = "updated"
+    DB_TAGS = "tags"
+    DB_NAME = "db_name"
+    V_VERSION = "version"
 
 
 DEFAULT_DB_NAME = "default-db"
@@ -31,7 +34,8 @@ class Database:
     A Database represents the consolidated list of paths that have data in the db
     """
 
-    def __init__(self, db_type: DBType, db_name: str, paths: list, save_path: str | None, created: str, updated: str):
+    def __init__(self, db_type: DBType, db_name: str, paths: list, save_path: str | None, created: str, updated: str,
+                 tags=None):
         """
         Set up a new Database with the supplied parameters
         :param save_path: The path on disk where this database is saved. Not applicable for a default database
@@ -42,6 +46,8 @@ class Database:
         :param updated: date this db was last updated
         :raise ValueError: if paths is empty
         """
+        if tags is None:
+            tags = []
         self._save_path = save_path
         self._database_name = db_name
         self._paths = paths
@@ -49,7 +55,7 @@ class Database:
         self._created = created
         self._updated = updated
         self._path_cache = {}
-        self._tags = []
+        self._tags = tags
         self._validate_database(self)
 
     @property
@@ -97,11 +103,13 @@ class Database:
         key = self._create_path_key(path, view)
         if key not in self._path_cache:
             if self.type == DBType.IN_MEMORY:
+                app.logger.debug(f"Fetching data from exiftool for path {key}")
                 info = ExifInfo(path, view.format)
                 self._path_cache[key] = info.data
                 self._tags = list(dict.fromkeys(self._tags + info.tags))
             else:
                 # Fetch data from disk, add to cache and return it
+                app.logger.debug(f"Fetching data from disk for path {key}")
                 out_file = Path(self.save_path) / key
                 self._path_cache[key] = json.loads(out_file.read_text(encoding=ExifInfo.DATA_ENCODING))
                 self._tags = list(dict.fromkeys(self._tags + ExifInfo.get_tags(self._path_cache[key])))
@@ -120,9 +128,16 @@ class Database:
         """
         Saves this database to the disk based on its configuration
         """
+        # Save path must exist
+        if not save_path:
+            raise ValueError("Database is missing a valid save path")
+        # Save the save path
         self._save_path = save_path
+        p_save_path = Path(self.save_path)
         # Create the save path
-        Path(self.save_path).mkdir(parents=True, exist_ok=True)
+        p_save_path.mkdir(parents=True, exist_ok=True)
+        # Capture DB Name
+        self._database_name = p_save_path.name
 
         # Validate database
         self._validate_database(self)
@@ -130,9 +145,6 @@ class Database:
         for path in self.paths:
             if not Path(path).exists():
                 raise ValueError(f"Path '{path}' is is not a valid location")
-        # Save path must exist
-        if not self.save_path:
-            raise ValueError("Database is missing a valid save path")
 
         app.logger.debug(f"Starting to save database {self}")
         # Iterate through each path in the database and write its metadata to disk
@@ -144,43 +156,26 @@ class Database:
 
         # Blow the cache to force subsequent reloads from disk
         self._path_cache = {}
-        # Set mode = db type
+        # Set DB Type
         self._type = db_type
+        # Write Metadata to the database
+        Properties.write(self)
+
+    def reload(self):
+        if self.type == DBType.ON_DISK:
+            r_db = Properties.as_dictionary(self.save_path)
+            self._database_name = r_db[Props.DB_NAME]
+            self._save_path = r_db[Props.DB_SAVE_PATH]
+            self._paths = r_db[Props.DB_PATHS]
+            self._type = r_db[Props.DB_TYPE]
+            self._created = r_db[Props.DB_CREATED]
+            self._updated = r_db[Props.DB_UPDATED]
+            self._tags = r_db[Props.DB_TAGS]
+        else:
+            app.logger.error("Unable to reload an in-memory database!")
 
     def __repr__(self):
         return f"Database: [Type: {self.type}] {self._database_name}"
-
-    # def get_path_data(self, path: str, view: ViewType, ignore_cache: bool = False, write_to_file=False) -> str:
-    #     """
-    #     Checks if the path is in cache, if present, returns its data. if missing, and this is a default database,
-    #     extracts the exif info and returns it. If its not a default database, returns the data associated with this path
-    #     :param path: The file to test
-    #     :param view: The view to return
-    #     :param ignore_cache: If true, will ignore the entry from the cache and reload the path. Once reloaded, will add
-    #     it back to the cache for future use
-    #     :return: The data to represent this path
-    #     :raises: ValueError if path is not present in database
-    #     :raises: ValueError if view is not supported for database
-    #     """
-    #     # TODO: Test
-    #     if path not in self._paths:
-    #         raise ValueError(f"{path} was not found in this database")
-    #
-    #     key = self._create_path_key(path, view)
-    #     if ignore_cache or key not in self._path_cache:
-    #         app.logger.debug(f"Exif data for '{key}' not in cache. Adding it")
-    #
-    #         if write_to_file:
-    #             out_file = Path(self.save_path) / self._create_path_key(path, ViewType.JSON)
-    #             app.logger.debug(f"Writing contents of {path} to {out_file}")
-    #         else:
-    #             out_file = None
-    #
-    #         info = ExifInfo(path, view.format, save_file=out_file)
-    #         self._path_cache[key] = info.data
-    #
-    #     app.logger.debug(f"Returning exif data for '{key}' from cache")
-    #     return self._path_cache[key]
 
     @staticmethod
     def _validate_database(database):
@@ -202,14 +197,14 @@ class Database:
         return key
 
     @classmethod
-    def create_in_memory(cls, paths: list, name: str = DEFAULT_DB_NAME):
+    def create_in_memory(cls, paths: list, save_path=None):
         """
         Creates and returns a default database
         :param paths: The paths to add to this database
-        :param name: The database name
+        :param save_path: The path this db will be eventually saved to (optional)
         :return: A Database object
         """
-        return cls(DBType.IN_MEMORY, name, paths, save_path=None,
+        return cls(DBType.IN_MEMORY, DEFAULT_DB_NAME, paths, save_path=save_path,
                    created=str(datetime.datetime.now()), updated=str(datetime.datetime.now()))
 
     @classmethod
@@ -219,99 +214,97 @@ class Database:
         :param database_path: The path to the database
         :return: A Database object
         """
-        raise NotImplementedError("Not Implemented")
+        return cls(**Properties.as_dictionary(database_path))
 
 
-class DatabaseRegistry:
+class Properties:
+    S_DATABASE = "database"
+    S_VERSION = "version"
+    PROPERTIES_FILE = "database"
 
-    def __init__(self, registry_file):
+    @staticmethod
+    def as_database(database_path: str) -> Database:
         """
-        Do not directly call this object.
-        :param registry_file: The ini registry file
+        Get the database details from the property file
+        :return: The database information as a db object
         """
-        _config = configparser.ConfigParser()
-        _config.read(registry_file)
-        self._registry = _config
-        self._registry_file = registry_file
+        config = configparser.ConfigParser()
+        config.read(Properties._get_config_file(database_path))
+        Properties._test_version(config)
 
-    @property
-    def databases(self):
-        return self._registry.sections()
-
-    def get(self, database_name: str):
-        """
-        Get the database from the registry
-        :param database_name: The database to get
-        :return: The database information as a dict
-        :raise: A ValueError if the database was not found in the registry
-        """
-        if database_name not in self._registry:
-            raise ValueError(f"{database_name} was not found in this database")
-
-        db = self._registry[database_name]
+        db = config[Properties.S_DATABASE]
         return Database(
-            db_name=database_name,
-            save_path=None if db[RegistryFields.SAVE_PATH] == "--" else db[RegistryFields.SAVE_PATH],
-            paths=json.loads(db[RegistryFields.PATHS]),
-            db_type=DBType[db[RegistryFields.TYPE]],
-            created=db[RegistryFields.CREATED] if RegistryFields.CREATED in db else None,
-            updated=db[RegistryFields.UPDATED] if RegistryFields.UPDATED in db else None
+            db_name=db[Props.DB_NAME],
+            save_path=str(database_path),
+            paths=json.loads(db[Props.DB_PATHS]),
+            db_type=DBType[db[Props.DB_TYPE]],
+            created=db[Props.DB_CREATED] if Props.DB_CREATED in db else None,
+            updated=db[Props.DB_UPDATED] if Props.DB_UPDATED in db else None,
+            tags=json.loads(db[Props.DB_TAGS])
         )
 
-    def add(self, database: Database):
+    @staticmethod
+    def as_dictionary(database_path: str) -> dict:
         """
-        Saves this database to the registry. Note: The changes are not saved until `registry.commit` is called!
-        :param database: The database to add
+        Get the database details from the property file
+        :return: The database information as a db object
         """
-        if database.name in self._registry:
-            raise ValueError(f"Database exists in registry. To update an existing database use the update method")
+        config = configparser.ConfigParser()
+        config.read(Properties._get_config_file(database_path))
+        Properties._test_version(config)
 
-        self._change_section(database, created=str(datetime.datetime.now()))
-
-    def update(self, database: Database):
-        """
-        Updates an existing database. Note: The changes are not saved until `registry.commit` is called!
-        :param database: The database to update
-        :raise ValueError if the database does not exist in the registry
-        """
-        if database.name not in self._registry:
-            raise ValueError(f"{database.name} was not found in this database")
-
-        self._change_section(database,
-                             created=self._registry[database.name][RegistryFields.CREATED],
-                             updated=str(datetime.datetime.now()))
-
-    def delete(self, database_name) -> bool:
-        """
-        Deletes the database from the registry. Note: The changes are not saved until `registry.commit` is called!
-        :param database_name: The database to delete
-        :return: True if the database was deleted
-        """
-        return self._registry.remove_section(database_name)
-
-    def commit(self):
-        """
-        Commits the database to the disk
-        :return:
-        """
-        with open(self._registry_file, "w") as registry_file:
-            self._registry.write(registry_file)
-
-    def _change_section(self, database: Database, created=None, updated=None):
-        self._registry[database.name] = {
-            RegistryFields.SAVE_PATH: str(database.save_path) if database.save_path is not None else "--",
-            RegistryFields.PATHS: json.dumps(database.paths),
-            RegistryFields.TYPE: database.type.name,
+        db = config[Properties.S_DATABASE]
+        return {
+            Props.DB_NAME: db[Props.DB_NAME],
+            Props.DB_SAVE_PATH: str(database_path),
+            Props.DB_PATHS: json.loads(db[Props.DB_PATHS]),
+            Props.DB_TYPE: DBType[db[Props.DB_TYPE]],
+            Props.DB_CREATED: db[Props.DB_CREATED] if Props.DB_CREATED in db else None,
+            Props.DB_UPDATED: db[Props.DB_UPDATED] if Props.DB_UPDATED in db else None,
+            Props.DB_TAGS: json.loads(db[Props.DB_TAGS])
         }
-        if created is not None:
-            self._registry[database.name][RegistryFields.CREATED] = created
 
-        if updated is not None:
-            self._registry[database.name][RegistryFields.UPDATED] = updated
+    @staticmethod
+    def write(database: Database):
+        """
+        Updates existing database properties or creates if they do not exist
+        """
+        config_file = Properties._get_config_file(database.save_path)
+        config = configparser.ConfigParser()
+        config.read(config_file)
 
+        Properties._test_version(config)
 
-def get_registry():
-    return _db_registry
+        Properties._write_version(config, app.__VERSION__)
+        Properties._write_database(config, database)
+        with open(config_file, "w+") as out_file:
+            config.write(out_file)
 
+    @staticmethod
+    def _write_version(config: configparser.ConfigParser, version: str):
+        config[Properties.S_VERSION] = {
+            Props.V_VERSION: version
+        }
 
-_db_registry = DatabaseRegistry(appsettings.get_registry_db().name)
+    @staticmethod
+    def _write_database(config: configparser.ConfigParser, database: Database):
+        config[Properties.S_DATABASE] = {
+            Props.DB_NAME: database.name,
+            Props.DB_SAVE_PATH: database.save_path,
+            Props.DB_PATHS: json.dumps(database.paths),
+            Props.DB_TYPE: database.type.name,
+            Props.DB_CREATED: database.created,
+            Props.DB_UPDATED: database.updated,
+            Props.DB_TAGS: json.dumps(database.tags)
+        }
+
+    @staticmethod
+    def _test_version(parser: configparser.ConfigParser) -> bool:
+        if Properties.S_VERSION in parser:
+            file_version = parser[Properties.S_VERSION]
+            app.logger.warning(f"Version test for {file_version} skipped!")
+        return True
+
+    @staticmethod
+    def _get_config_file(db_path: str) -> str:
+        return str(Path(db_path) / f"{Properties.PROPERTIES_FILE}.ini")

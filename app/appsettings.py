@@ -129,17 +129,45 @@ def get_config_dir() -> Path:
     return Path(_settings.config_dir)
 
 
-def set_db_paths(db_paths: list):
-    items_pickle = pickle.dumps(db_paths)
-    _settings.apply_setting("db_paths", items_pickle)
+def get_recently_opened_databases():
+    return _load_list("recent-databases", default=[])
 
 
-def get_db_paths() -> list:
-    items_pickle = _settings.get_property("db_paths")
+def set_recently_opened_databases(recents_list: list):
+    _save_list("recent-databases", recents_list)
+
+
+def get_bookmarks():
+    return _load_list("bookmarks", default=[])
+
+
+def set_bookmarks(bookmarks_list: list):
+    _save_list("bookmarks", bookmarks_list)
+
+
+def get_recent_max_size():
+    return 10
+
+
+def push_to_list(item: str, p_list: list, max_list_size: int = get_recent_max_size()):
+    if item in p_list:
+        p_list.remove(item)
+    if len(p_list) >= max_list_size:
+        del p_list[0]
+    p_list.append(item)
+    return p_list
+
+
+def _save_list(key: str, s_list: list):
+    items_pickle = pickle.dumps(s_list)
+    _settings.set_property(key, items_pickle)
+
+
+def _load_list(key: str, default=None):
+    if default is None:
+        default = []
+
+    items_pickle = _settings.get_property(key)
     if items_pickle:
         return pickle.loads(items_pickle)
-    return []
-
-
-def get_registry_db() -> Path:
-    return get_config_dir() / "dbregistry.ini"
+    return default

@@ -3,7 +3,7 @@ from functools import partial
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QAction, QIcon
-from PyQt6.QtWidgets import QMenuBar, QMenu, QDockWidget
+from PyQt6.QtWidgets import QMenuBar, QMenu
 
 import app
 from app import views
@@ -11,7 +11,7 @@ from app.database.ds import DBType, Database
 from app.views import ViewType
 
 
-def _create_action(parent, name, func=None, shortcut=None, tooltip=None, icon=None, checked=None):
+def _create_action(parent, name, func=None, shortcut=None, tooltip=None, icon=None, checked=None, enabled=True):
     """
     Creates an action for use in a Toolbar or Menu
     :param parent: The actions parent
@@ -21,6 +21,7 @@ def _create_action(parent, name, func=None, shortcut=None, tooltip=None, icon=No
     :param tooltip: The tooltip to display when this action is interacted with
     :param icon: The icon to show for this action
     :param checked: Whether the visual cue associated with this action represents a check mark
+    :param enabled: Whether the action is enabled once created
     :return: A QAction object representing this action
     """
     # TODO: Test
@@ -39,6 +40,7 @@ def _create_action(parent, name, func=None, shortcut=None, tooltip=None, icon=No
     if checked:
         action.setCheckable(True)
         action.setChecked(checked)
+    action.setEnabled(enabled)
     return action
 
 
@@ -75,19 +77,23 @@ class DBAction(StrEnum):
     REFRESH = "Refresh"
     RESET = "Reset"
     OPEN_DB = "Open Database..."
+    BOOKMARK = "Add or Remove Favorite"
 
 
 class AppMenuBar(QMenuBar):
     view_changed = pyqtSignal(ViewType)
     paths_changed = pyqtSignal(list)
+    open_db_action = pyqtSignal(str)
     medialib_action = pyqtSignal(MediaLibAction)
     database_action = pyqtSignal(DBAction)
 
     _MENU_DATABASE_PATHS = "Database Paths"
+    _MENU_DATABASE_HISTORY = "Recently Opened"
+    _MENU_DATABASE_BOOKMARKS = "Favorites"
 
-    def __init__(self, database: Database, plugins: list):
+    def __init__(self, plugins: list):
         super().__init__()
-        self.db_menu = self._create_database_menu(database)
+        self.db_menu = self._create_database_menu()
         self.view_menu = self._create_view_menu()
         self.addMenu(self._create_file_menu())
         self.addMenu(self.db_menu)
@@ -105,6 +111,37 @@ class AppMenuBar(QMenuBar):
         for item in paths:
             self._add_path(paths_menu, item)
 
+    def update_recents(self, recents: list):
+        self._update_db_path_menu(menu_name=self._MENU_DATABASE_HISTORY, db_paths=recents,
+                                  icon_name="folder-open-recent")
+
+    def update_bookmarks(self, bookmarks: list):
+        self._update_db_path_menu(menu_name=self._MENU_DATABASE_BOOKMARKS, db_paths=bookmarks, icon_name="bookmarks")
+
+    def show_database(self, database: Database):
+        # You can only save to an existing database. Default databases need to be 'saved as'
+        _find_action(DBAction.SAVE, self.db_menu.actions()).setEnabled(not database.type == DBType.IN_MEMORY)
+        _find_action(DBAction.SAVE_AS, self.db_menu.actions()).setEnabled(True)
+        _find_action(DBAction.RESET, self.db_menu.actions()).setEnabled(not database.type == DBType.IN_MEMORY)
+        _find_action(DBAction.REFRESH, self.db_menu.actions()).setEnabled(True)
+        _find_action(DBAction.BOOKMARK, self.db_menu.actions()).setEnabled(True)
+
+        paths_menu = _find_action(self._MENU_DATABASE_PATHS, self.db_menu.actions()).menu()
+        for action in paths_menu.actions():
+            paths_menu.removeAction(action)
+        self.add_db_paths(database.paths)
+
+    def _update_db_path_menu(self, menu_name: str, db_paths: list, icon_name: str):
+        _menu = _find_action(menu_name, self.db_menu.actions()).menu()
+        if _menu is None:
+            raise AttributeError(f"{menu_name} not in this list")
+
+        for action in _menu.actions():
+            _menu.removeAction(action)
+
+        for path in db_paths:
+            _menu.addAction(_create_action(self, path, func=self._open_db_event, icon=icon_name))
+
     def _create_view_menu(self):
         # TODO: Test
         view_menu = QMenu("&View", self)
@@ -115,29 +152,28 @@ class AppMenuBar(QMenuBar):
 
         return view_menu
 
-    def _create_database_menu(self, database: Database):
+    def _create_database_menu(self):
         # TODO: Test
         db_menu = QMenu("&Database", self)
-        save_action = _create_action(self, DBAction.SAVE, shortcut="Ctrl+S", icon="document-save",
-                                     tooltip="Save the exif data of all open paths to the DB", func=self._raise_db_event)
-        # You can only save to an existing database. Default databases need to be 'saved as'
-        save_action.setEnabled(not database.type == DBType.IN_MEMORY)
-        db_menu.addAction(save_action)
+        db_menu.addAction(_create_action(self, DBAction.SAVE, shortcut="Ctrl+S", icon="document-save",
+                                         tooltip="Save the exif data of all open paths to the DB",
+                                         func=self._raise_db_event, enabled=False))
         db_menu.addAction(_create_action(self, DBAction.SAVE_AS, shortcut="Ctrl+Shift+S", icon="document-save-as",
                                          tooltip="Save the exif data of all open paths to the DB",
-                                         func=self._raise_db_event))
+                                         func=self._raise_db_event, enabled=False))
         db_menu.addAction(_create_action(self, DBAction.REFRESH, shortcut="F5", icon="view-refresh",
                                          tooltip="Save the exif data of the current paths to the DB",
-                                         func=self._raise_db_event))
+                                         func=self._raise_db_event, enabled=False))
         db_menu.addAction(_create_action(self, DBAction.RESET, icon="view-restore",
                                          tooltip="Reset this database",
-                                         func=self._raise_db_event))
+                                         func=self._raise_db_event, enabled=False))
+        db_menu.addAction(_create_action(self, DBAction.BOOKMARK, icon="bookmark",
+                                         tooltip="Add or remove this database from favorites",
+                                         func=self._raise_db_event, enabled=False))
         db_menu.addSeparator()
 
         paths_menu = QMenu(self._MENU_DATABASE_PATHS, self)
         paths_menu.setIcon(QIcon.fromTheme("database-paths"))
-        for path in database.paths:
-            self._add_path(paths_menu, path)
 
         db_menu.addMenu(paths_menu)
 
@@ -145,6 +181,16 @@ class AppMenuBar(QMenuBar):
         db_menu.addAction(_create_action(self, DBAction.OPEN_DB, shortcut="Ctrl+D",
                                          icon="database-open", func=self._raise_db_event,
                                          tooltip="Open a non registered private database"))
+
+        history_menu = QMenu(self._MENU_DATABASE_HISTORY, self)
+        history_menu.setIcon(QIcon.fromTheme("folder-open-recent"))
+
+        bookmarks_menu = QMenu(self._MENU_DATABASE_BOOKMARKS, self)
+        bookmarks_menu.setIcon(QIcon.fromTheme("bookmark"))
+
+        db_menu.addSeparator()
+        db_menu.addMenu(history_menu)
+        db_menu.addMenu(bookmarks_menu)
 
         return db_menu
 
@@ -160,8 +206,9 @@ class AppMenuBar(QMenuBar):
         if existing is not None:
             app.logger.warning(f"{path} already exists in this database.")
             return
-        menu.addAction(_create_action(self, path, func=self._raise_paths_change, icon=views.get_mime_type_icon_name(path),
-                                      shortcut=f"Ctrl+{count + 1}" if count < 9 else None, checked=True))
+        menu.addAction(
+            _create_action(self, path, func=self._raise_paths_change, icon=views.get_mime_type_icon_name(path),
+                           shortcut=f"Ctrl+{count + 1}" if count < 9 else None, checked=True))
 
     def _create_file_menu(self):
         # TODO: Test
@@ -219,6 +266,9 @@ class AppMenuBar(QMenuBar):
                 paths.append(item.text())
 
         self.paths_changed.emit(paths)
+
+    def _open_db_event(self, recent):
+        self.open_db_action.emit(recent)
 
     def _raise_db_event(self, action):
         self.database_action.emit(DBAction(action))
