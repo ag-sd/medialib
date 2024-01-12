@@ -7,7 +7,7 @@ from pyparsing import ParseException
 class TestMQLTokenizer(unittest.TestCase):
     def test_run_all_tests(self):
         tests = """\
-                select * where z > 100
+                select * From Database where z > 100
                 select * where z > 100 order by zz
                 select * 
                 select z.* 
@@ -40,8 +40,9 @@ class TestMQLTokenizer(unittest.TestCase):
                 SELECT * where ff not like 'bob%' limit 10 offset 5
             """
 
-        success, parsed = Tokenizer.parser.runTests(tests)
-        self.assertTrue(success)
+        for test in tests.split('\n'):
+            success, parsed = Tokenizer.parser.runTests(test)
+            self.assertTrue(success)
 
     def test_invalid_query(self):
         try:

@@ -27,7 +27,7 @@ class Tokenizer:
             k: CaselessKeyword(k)
             for k in """\
                         ALL AND ASC DESC ON AS NOT
-                        SELECT DISTINCT WHERE GROUP BY HAVING ORDER LIMIT OFFSET OR ISNULL NOTNULL NULL IS BETWEEN ELSE
+                        SELECT DISTINCT FROM WHERE GROUP BY HAVING ORDER LIMIT OFFSET OR ISNULL NOTNULL NULL IS BETWEEN ELSE
                         EXISTS IN LIKE REGEXP CURRENT_TIME CURRENT_DATE CURRENT_TIMESTAMP TRUE FALSE
                         """.split()
         }
@@ -103,7 +103,7 @@ class Tokenizer:
                 (oneOf("<< >> & |"), BINARY, opAssoc.LEFT),
                 (oneOf("< <= > >="), BINARY, opAssoc.LEFT),
                 (
-                    oneOf("= == != <>")
+                    oneOf("== != <>")
                     | IS
                     | IN
                     | LIKE
@@ -146,6 +146,7 @@ class Tokenizer:
                 SELECT
                 + Optional(DISTINCT | ALL)
                 + Group(delimitedList(result_column))("columns")
+                + Optional(FROM + "Database")
                 + Optional(WHERE + expr("where_expr"))
                 + Optional(
             Optional(HAVING + expr("having_expr"))
@@ -174,53 +175,59 @@ class Tokenizer:
         return Tokenizer.parser.parseString(query, parseAll=True)
 
 
-# def main():
-#     tests = """\
-#         select * where z > 100
-#         select * where z > 100 order by zz
-#         select *
-#         select z.*
-#         select a, b where 1=1 and b='yes'
-#         select a, b where 1=1
-#         select z.a, b where 1=1
-#         select z.a, b where 1=1 order by b,c desc,d
-#         select a, db.table.b as BBB where 1=1 and BBB='yes'
-#         select a, db.table.b as BBB where 1=1 and BBB='yes'
-#         select a, db.table.b as BBB where 1=1 and BBB='yes' limit 50
-#         SELECT * where (ST_Overlaps("GEOM", 'POINT(0 0)'))
-#         SELECT * where bar BETWEEN +180 AND +10E9
-#         SELECT SomeFunc(99)
-#         SELECT * where ST_X(ST_Centroid(geom)) BETWEEN (-180*2) AND (180*2)
-#         SELECT * where a
-#         SELECT * where snowy_things REGEXP '[⛄️☃️☃🎿🏂🌨❄️⛷🏔🗻❄︎❆❅]'
-#         SELECT * where a."b" IN 4
-#         SELECT * where a."b" In ('4')
-#         SELECT * where "E"."C" >= CURRENT_Time
-#         SELECT * where "dave" != "Dave" -- names & things ☃️
-#         SELECT * where a.dave is not null
-#         SELECT * where pete == FALSE or peter is true
-#         SELECT * where a >= 10 * (2 + 3)
-#         SELECT * where frank = 'is ''scary'''
-#         SELECT * where "identifier with ""quotes"" and a trailing space " IS NOT FALSE
-#         SELECT * where blobby == x'C0FFEE'  -- hex
-#         SELECT * where ff NOT IN (1,2,4,5)
-#         SELECT * where ff not between 3 and 9
-#         SELECT * where ff not like 'bob%'
-#         SELECT * where ff not like 'bob%' limit 10 offset 5
-#     """
-#
-#     # for test in tests.split('\n'):
-#     #     print(test)
-#     #     success, parsed = MQL.parser.runTests(test)
-#     #     if not success:
-#     #         print("Error")
-#     #         print(parsed)
-#     #         exit(0)
-#     #     print("----------------------------")
-#
-#     print(Tokenizer.tokenize(" SELECT * WHERE (1!=2 or 2!=3) and 2=3 or (foo='bar')"))
-#     print("All done!")
-#
-#
-# if __name__ == "__main__":
-#     main()
+class JQAdapter:
+    def __init__(self):
+        super().__init__()
+
+    @staticmethod
+    def _col_syntax(tokenized_dict: dict) -> str:
+        columns = []
+        for column in tokenized_dict['columns']:
+            field = column['col']['col'][0]
+            alias = column['alias'][0] if 'alias' in column else field
+            columns.append(f"'{alias}':'{field}'")
+
+        return f"{{{','.join(columns)}}}"
+
+    # TODO
+    # | IN
+    # | REGEXP
+    # | NOT_IN
+    # | NOT_LIKE
+    # | NOT_REGEXP,
+
+    @staticmethod
+    def flatten(expression):
+        if isinstance(expression, list):
+            operand = expression[1]
+            match operand:
+                case '<>':
+                    return f"(  {JQAdapter.flatten(expression[0])}  !=  {JQAdapter.flatten(expression[2])}  )"
+                case 'IS':
+                    return f"(  {JQAdapter.flatten(expression[0])}  ==  {JQAdapter.flatten(expression[2])}  )"
+                case 'LIKE':
+                    return f"(  {JQAdapter.flatten(expression[0])}  |  contains('{JQAdapter.flatten(expression[2])}')  )"
+                case _:
+                    return f"(  {JQAdapter.flatten(expression[0])}  {expression[1]}  {JQAdapter.flatten(expression[2])}  )"
+        elif isinstance(expression, dict):
+            return expression['col'][0]
+        else:
+            return expression
+
+
+    @staticmethod
+    def _where_expansion(tokenized_dict: dict) -> str:
+        pass
+
+
+
+#cat home__sheldon__Documents__dev__testing__images.json | jq -c '.[] | select( ."File:ImageHeight">2315 or ."File:ImageHeight" ==3744) | select(."SourceFile" | contains("unsplash")) | {message: ."SourceFile", height: ."File:ImageHeight"}'
+#cat home__sheldon__Documents__dev__testing__images.json | jq -c '.[] | select( (."File:ImageHeight">2315) or (."File:ImageHeight" ==3744) or (."SourceFile" | contains("unsplash"))) | {message: ."SourceFile", height: ."File:ImageHeight"}'
+if __name__ == "__main__":
+    resp = Tokenizer.tokenize(" SELECT x.a as Foo, b as Bar, c WHERE (1!=2 or 2!=3) and 2==3 or (foo=='bar')")
+    resp = Tokenizer.tokenize(" SELECT x.a as Foo, b as Bar, c WHERE (1!=2 or 2!=3) and goo<>boo or (foo=='bar')")
+    resp = Tokenizer.tokenize(" SELECT x.a as Foo, b as Bar, c WHERE sourcefile not like '%hello'")
+    dick = resp.asDict()
+
+    print(JQAdapter.flatten(dick['where_expr']))
+    print("All done!")
