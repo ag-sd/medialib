@@ -204,11 +204,11 @@ class MQL:
             operand = self._compose_operand(expression[1])
             suffix = " | not" if operand.startswith("NOT_") else ""
             match operand:
-                case '<>':
+                case "<>":
                     return f"(  {self._flatten(expression[0])}  !=  {self._flatten(expression[2])}  )"
-                case 'IS' | "=":
+                case "IS" | "=":
                     return f"(  {self._flatten(expression[0])}  ==  {self._flatten(expression[2])}  )"
-                case 'LIKE' | 'NOT_LIKE':
+                case "LIKE" | "NOT_LIKE":
                     expr2 = self._flatten(expression[2])
                     if expr2.startswith('%'):
                         q = f"( {self._flatten(expression[0])} | startswith('{self._flatten(expression[2])}'){suffix} )"
@@ -217,8 +217,10 @@ class MQL:
                     else:
                         q = f"( {self._flatten(expression[0])} | contains('{self._flatten(expression[2])}'){suffix} )"
                     return q
+                case "AND" | "OR":
+                    return f"(  {self._flatten(expression[0])}  {operand.lower()}  {self._flatten(expression[2])}  )"
                 case _:
-                    return f"(  {self._flatten(expression[0])}  {expression[1]}  {self._flatten(expression[2])}  )"
+                    return f"(  {self._flatten(expression[0])}  {operand}  {self._flatten(expression[2])}  )"
         elif isinstance(expression, dict):
             return expression['col'][0]
         elif isinstance(expression, str):
