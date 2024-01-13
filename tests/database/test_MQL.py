@@ -38,6 +38,19 @@ class TestMQLTokenizer(unittest.TestCase):
         print(response)
 
 
+    # SELECT * where bar BETWEEN +180 AND +10E9
+    # SELECT * where snowy_things REGEXP '[⛄️☃️☃🎿🏂🌨❄️⛷🏔🗻❄︎❆❅]'
+    # SELECT * where a."b" IN 4
+    # SELECT * where a."b" In ('4')
+    # SELECT * where "E"."C" >= CURRENT_Time
+    # SELECT * where "dave" != "Dave" -- names & things ☃️
+    # SELECT * where frank = 'is ''scary'''
+    # SELECT * where ff NOT IN (1,2,4,5)
+    # SELECT * where ff not between 3 and 9
+    # SELECT * where ff not like 'bob%'
+    # SELECT * where ff not like '%bob'
+    # SELECT * where ff not like 'bo%b'
+
     #
     # def test_run_all_tests(self):
     #     tests = """\
