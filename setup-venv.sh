@@ -21,4 +21,5 @@ pip install pyqt6
 # Install dependencies
 echo "Install dependency : pyparsing"
 pip install pyparsing
-#pip install psutil
+# Intstall testing tools
+pip install coverage

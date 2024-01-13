@@ -5,7 +5,6 @@ from enum import StrEnum
 from pathlib import Path
 
 import app
-from app import appsettings
 from app.database.exifinfo import ExifInfo
 from app.views import ViewType
 
