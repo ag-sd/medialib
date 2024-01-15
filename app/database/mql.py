@@ -1,5 +1,6 @@
 # https://stackoverflow.com/questions/44170597/pyparsing-nestedexpr-and-nested-parentheses
 # https://github.com/pyparsing/pyparsing/tree/master/examples
+# https://www.sqlite.org/lang_expr.html
 import json
 import subprocess
 
@@ -8,6 +9,10 @@ from pyparsing import ParserElement, Suppress, Literal, Forward, CaselessKeyword
     infixNotation, opAssoc, ZeroOrMore
 
 import app
+
+_EMPTY_STRING = ""
+
+_REGEX_OPS = "ixn"
 
 
 class _Grammar:
@@ -172,103 +177,143 @@ class _Grammar:
 _parser = _Grammar.select_stmt
 
 
-class MQL:
-    def __init__(self):
-        super().__init__()
+def query_data(query: str, input_data: str):
+    pass
 
-    def filter_in_data(self, query: str, input_data: str):
-        pass
 
-    def filter_in_file(self, query: str, input_file: str):
-        filter_map = self._evaluate_query(query)
-        app.logger.debug(f"Applying JQ filter-map:  cat {input_file} | jq '{filter_map}'")
-        transformed = subprocess.run(["jq", filter_map, input_file], capture_output=True)
-        transformed.check_returncode()
-        return json.loads(transformed.stdout.decode("utf8"))
+def query_file(query: str, file: str):
+    filter_map = _evaluate_query(query)
+    app.logger.debug(f"Applying JQ filter-map:  cat {file} | jq '{filter_map}'")
+    transformed = subprocess.run(["jq", filter_map, file], capture_output=True)
+    transformed.check_returncode()
+    return json.loads(transformed.stdout.decode("utf8"))
 
-    def _evaluate_query(self, query: str):
-        tokenized_query = _parser.parseString(query, parseAll=True).asDict()
-        if "where_expr" in tokenized_query:
-            where_expr = f" | select( {self._flatten(tokenized_query['where_expr'])} )"
+
+def _evaluate_query(query: str):
+    tokenized_query = _parser.parseString(query, parseAll=True).asDict()
+    # SELECT Clause
+    select_expr = _choose_columns(tokenized_query["columns"])
+    if select_expr != _EMPTY_STRING:
+        select_expr = f"| {{ {select_expr} }}"
+    # WHERE Clause
+    if "where_expr" in tokenized_query:
+        where_expr = f" | select( {_flatten(tokenized_query['where_expr'])} )"
+    else:
+        where_expr = _EMPTY_STRING
+
+    return f"[.[] {where_expr} {select_expr}]"
+
+
+def _choose_columns(col_list: list) -> str:
+    # TODO: BUG: change 'col' to maybe _col_ as line 214 will be true if a field contains the chars col
+    # First Check for all columns (*)
+    if len(col_list) == 1 and col_list[0]['col'] == "*":
+        # Empty string represents no field selection by JQ
+        return _EMPTY_STRING
+
+    # Then check for individual columns
+    columns = []
+    for column in col_list:
+        node = column["col"]
+        if "col" in node:
+            field = node["col"][0]
         else:
-            where_expr = ""
-        return f"[.[] {where_expr}]"
+            field = node
 
-    # TODO
-    # | IN
-    # | REGEXP
-    # | NOT_IN
-    # | NOT_REGEXP,
-    def _flatten(self, expression):
-        if isinstance(expression, list):
-            operand = self._compose_operand(expression[1])
-            suffix = " | not" if operand.startswith("NOT_") else ""
-            match operand:
-                case "<>":
-                    return f"(  {self._flatten(expression[0])}  !=  {self._flatten(expression[2])}  )"
-                case "IS" | "=":
-                    return f"(  {self._flatten(expression[0])}  ==  {self._flatten(expression[2])}  )"
-                case "LIKE" | "NOT_LIKE":
-                    expr2 = self._flatten(expression[2])
-                    if expr2.startswith('%'):
-                        q = f"( {self._flatten(expression[0])} | startswith('{self._flatten(expression[2])}'){suffix} )"
-                    elif expr2.endswith('%'):
-                        q = f"( {self._flatten(expression[0])} | endswith('{self._flatten(expression[2])}'){suffix} )"
-                    else:
-                        q = f"( {self._flatten(expression[0])} | contains('{self._flatten(expression[2])}'){suffix} )"
-                    return q
-                case "AND" | "OR":
-                    return f"(  {self._flatten(expression[0])}  {operand.lower()}  {self._flatten(expression[2])}  )"
-                case _:
-                    return f"(  {self._flatten(expression[0])}  {operand}  {self._flatten(expression[2])}  )"
-        elif isinstance(expression, dict):
-            return expression['col'][0]
-        elif isinstance(expression, str):
-            # Wrap strings in quotes
-            if expression.startswith("."):
-                # Handle field names
-                print("Field")
-                return f'."{expression[1:]}"'
-            return f'"{expression}"'
-        else:
-            return expression
+        alias = column["alias"][0] if "alias" in column else field
+        columns.append(f'"{alias}":.["{_compose_field_name(field)}"]')
 
-    @staticmethod
-    def _compose_operand(expression):
-        if isinstance(expression, list):
-            return "_".join(expression)
-        else:
-            return expression
+    return f"{','.join(columns)}"
 
 
-class JQAdapter:
-    def __init__(self):
-        super().__init__()
+# TODO
+# | IS
+# | IS_NOT
+# | BETWEEN
+def _flatten(expression):
+    if isinstance(expression, list):
+        operator = _compose_operator(expression[1])
+        suffix = " | not" if operator.startswith("NOT_") else _EMPTY_STRING
+        match operator:
+            case "<>":
+                return f"(  {_flatten(expression[0])}  !=  {_flatten(expression[2])}  )"
+            case "=":
+                return f"(  {_flatten(expression[0])}  ==  {_flatten(expression[2])}  )"
+            case "IS" | "IS_NOT":
+                # The IS and IS NOT operators work like = and != except when one or both of the operands are NULL
+                return f"(  {_flatten(expression[0])}  ==  {_flatten(expression[2])}  )"
+            case "LIKE" | "NOT_LIKE" | "REGEXP" | "NOT_REGEXP":
+                if operator == "LIKE" or operator == "NOT_LIKE":
+                    regexp = _compose_like_to_regex(expression[2])
+                else:
+                    regexp = expression[2]
+                return f"( {_flatten(expression[0])} | test(\"{regexp}\"; \"{_REGEX_OPS}\")  {suffix}  )"
+            case "AND" | "OR":
+                return f"(  {_flatten(expression[0])}  {operator.lower()}  {_flatten(expression[2])}  )"
+            case "IN" | "NOT_IN":
+                # https://stackoverflow.com/questions/50750688/jq-select-where-attribute-in-list
+                # jq does implicit one-to-many and many-to-one munging so x == (a, b, c) is an IN. But
+                # this does not work for NOT IN. Also note the case of 'IN' here as 'in' means something
+                # else completely
+                in_list = [str(_flatten(x)) for x in expression[2]]
+                return f"(  {_flatten(expression[0])} | IN ({', '.join(in_list)}) {suffix} )"
+            case _:
+                return f"(  {_flatten(expression[0])}  {operator}  {_flatten(expression[2])}  )"
+    elif isinstance(expression, dict):
+        return expression['col'][0]
+    elif isinstance(expression, str):
+        # Wrap strings in quotes
+        if expression.startswith(".") or expression.startswith("db."):
+            return f'."{_compose_field_name(expression)}"'
+        return f'"{expression}"'
+    else:
+        return expression
 
-    @staticmethod
-    def _col_syntax(tokenized_dict: dict) -> str:
-        columns = []
-        for column in tokenized_dict['columns']:
-            field = column['col']['col'][0]
-            alias = column['alias'][0] if 'alias' in column else field
-            columns.append(f"'{alias}':'{field}'")
 
-        return f"{{{','.join(columns)}}}"
-
+def _compose_field_name(expression):
+    if expression.startswith(".") or expression.startswith("db."):
+        # Handle field names
+        dot = expression.find(".") + 1
+        return expression[dot:]
+    # This is not a field!
+    return expression
 
 
-    @staticmethod
-    def _where_expansion(tokenized_dict: dict) -> str:
-        pass
+def _compose_operator(expression):
+    if isinstance(expression, list):
+        return "_".join(expression)
+    else:
+        return expression
+
+
+def _compose_like_to_regex(expression: str) -> str:
+    """
+    Converts a like search term to a regex pattern based on the following rules
+    https://www.w3schools.com/sql/sql_like.asp
+    % -> .*? : matches any character (except for line terminators) between zero and unlimited times, as few times
+    as possible, expanding as needed (lazy)
+    _ -> .   : matches any character (except for line terminators)
+    Example:
+        Hello
+        %lo     -> ^.*?lo$
+        He%     -> ^He.*?$
+        He%o    -> ^He.*?o$
+        He__o   -> ^He..o$
+        %__o     -> ^.*?..o$
+    """
+    expression = expression.replace("%", ".*?")
+    expression = expression.replace("_", ".")
+    return f"^{expression}$"
 
 
 # cat home__sheldon__Documents__dev__testing__images.json | jq -c '.[] | select( ."File:ImageHeight">2315 or ."File:ImageHeight" ==3744) | select(."SourceFile" | contains("unsplash")) | {message: ."SourceFile", height: ."File:ImageHeight"}'
 # cat home__sheldon__Documents__dev__testing__images.json | jq -c '.[] | select( (."File:ImageHeight">2315) or (."File:ImageHeight" ==3744) or (."SourceFile" | contains("unsplash"))) | {message: ."SourceFile", height: ."File:ImageHeight"}'
 if __name__ == "__main__":
+    # TODO Renam this file to mq
     # resp = Tokenizer.tokenize(" SELECT x.a as Foo, b as Bar, c WHERE (1!=2 or 2!=3) and 2==3 or (foo=='bar')")
     # resp = Tokenizer.tokenize(" SELECT x.a as Foo, b as Bar, c WHERE (1!=2 or 2!=3) and goo<>boo or (foo=='bar')")
     # resp = JQ()._evaluate_query(" SELECT x.a as Foo, b as Bar, c WHERE (1!=2 or 2!=3) and goo<>boo or (foo=='bar')")
-    resp = MQL().filter_in_file(" SELECT * from Database", "/mnt/dev/medialib/tests/resources/test_db_data.json")
+    resp = query_file(" SELECT * from Database", "/mnt/dev/medialib/tests/resources/test_db_data.json")
 
     print(resp)
     print("All done!")
