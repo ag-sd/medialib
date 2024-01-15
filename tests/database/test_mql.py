@@ -54,10 +54,16 @@ class TestMQL(unittest.TestCase):
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertTrue(len(response) == 3)
 
+    def test_in_clause_singular(self):
+        query = "select 'SourceFile' as file, 'File:FileType' as format " \
+                "from Database where 'JPEG' in '.File:FileType'"
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 3)
+
     def test_in_clause_strings(self):
         query = "select 'SourceFile' from Database where '.System:FileSize' in ('139 kB', '179 kB')"
         response = mql.query_file(query, self.TEST_INPUT)
-        self.assertTrue(len(response) == 2)
+        self.assertEqual(len(response), 2)
 
     def test_not_in_clause_strings(self):
         query = "select 'SourceFile' from Database where '.System:FileSize' not in ('139 kB', '179 kB')"
@@ -66,11 +72,7 @@ class TestMQL(unittest.TestCase):
 
     def test_between_clause(self):
         query = "select * from Database where '.File:ImageHeight' between 256, 1500"
-        try:
-            response = mql.query_file(query, self.TEST_INPUT)
-            self.assertTrue(len(response) == 2)
-        except ParseException:
-            self.assertTrue(True)
+        self.assertRaises(ParseException, mql.query_file, query, self.TEST_INPUT)
 
     def test_select_single_field_operation(self):
         query = "select 'SourceFile' from Database"
@@ -94,11 +96,7 @@ class TestMQL(unittest.TestCase):
 
     def test_aliased_stars_will_fail_syntax_error(self):
         query = "select x.* from database"
-        try:
-            _ = mql.query_file(query, self.TEST_INPUT)
-            self.assertFalse(True, "This query should fail parsing")
-        except ParseException:
-            self.assertTrue(True)
+        self.assertRaises(ParseException, mql.query_file, query, self.TEST_INPUT)
 
     def test_qualified_field_names(self):
         """
@@ -231,35 +229,114 @@ class TestMQL(unittest.TestCase):
         query = "Select 'SourceFile' as file, 'File:FileType' as type " \
                 "from Database where '.File:FileType' is not 'JPEG'"
         response = mql.query_file(query, self.TEST_INPUT)
-        self.assertEqual(len(response), 2)
+        self.assertEqual(len(response), 7)
         for ele in response:
             _type = ele["type"]
-            self.assertTrue("JPEG" == _type)
+            self.assertTrue("JPEG" != _type)
 
+    def test_is_null(self):
+        query = "Select 'SourceFile' as file, 'File:FileType' as type, " \
+                "'JFIF:ResolutionUnit' as jfif from Database where '.JFIF:ResolutionUnit' is null"
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 9)
+        for ele in response:
+            self.assertIsNone(ele["jfif"])
 
+    def test_is_not_null(self):
+        query = "Select 'SourceFile' as file, 'File:FileType' as type, " \
+                "'JFIF:ResolutionUnit' as jfif from Database where '.JFIF:ResolutionUnit' is not null"
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 6)
+        for ele in response:
+            self.assertIsNotNone(ele["jfif"])
 
+    def test_is_true(self):
+        query = "Select 'SourceFile' as file, 'mature_content' as content " \
+                "from Database where '.mature_content' is true"
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 5)
+        for ele in response:
+            self.assertTrue(ele["content"])
 
+    def test_is_not_true(self):
+        query = "Select 'SourceFile' as file, 'mature_content' as content " \
+                "from Database where '.mature_content' is not true"
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 10)
+        for ele in response:
+            self.assertFalse(ele["content"])
 
+    def test_is_false(self):
+        query = "Select 'SourceFile' as file, 'mature_content' as content " \
+                "from Database where '.mature_content' is false"
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 10)
+        for ele in response:
+            self.assertFalse(ele["content"])
 
+    def test_is_not_false(self):
+        query = "Select 'SourceFile' as file, 'mature_content' as content " \
+                "from Database where '.mature_content' is not false"
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 5)
+        for ele in response:
+            self.assertTrue(ele["content"])
 
+    def test_between_numbers(self):
+        query = "Select 'SourceFile' as file, 'File:ImageWidth' as width " \
+                "from Database where '.File:ImageWidth' between 100+100 and 300*2"
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 3)
+        for ele in response:
+            self.assertTrue((100 + 100) <= ele["width"] <= (300 * 2))
 
+    def test_between_invalid_syntax(self):
+        query = "Select 'SourceFile' as file, 'mature_content' as content " \
+                "from Database where '.File:ImageWidth' between 100+100 or 300*2"
 
+        self.assertRaises(ParseException, mql.query_file, query, self.TEST_INPUT)
 
-    # SELECT * where bar BETWEEN +180 AND +10E9
-    # SELECT * where snowy_things REGEXP '[⛄️☃️☃🎿🏂🌨❄️⛷🏔🗻❄︎❆❅]'
-    # SELECT * where a."b" IN 4
-    # SELECT * where a."b" In ('4')
-    # SELECT * where "E"."C" >= CURRENT_Time
-    # SELECT * where "dave" != "Dave" -- names & things ☃️
-    # SELECT * where frank = 'is ''scary'''
-    # SELECT * where ff NOT IN (1,2,4,5)
-    # SELECT * where ff not between 3 and 9
-    # SELECT * where ff not like 'bob%'
-    # SELECT * where ff not like '%bob'
-    # SELECT * where ff not like 'bo%b' limit 10 offset 5
-    # Test Not
+    def test_not_between_numbers(self):
+        query = "Select 'SourceFile' as file, 'File:ImageWidth' as width " \
+                "from Database where '.File:ImageWidth' not between 257 and 1000"
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 11)
 
-    #
+    def test_between_dates(self):
+        raise NotImplementedError
+
+    def test_not_between_dates(self):
+        raise NotImplementedError
+
+    def test_between_text_values(self):
+        query = "Select 'SourceFile' as file, 'File:FileType' as format " \
+                "from Database where '.File:FileType' between 'GIF' and 'PNG'"
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 12)
+        for ele in response:
+            fmt = ele["format"]
+            self.assertTrue("JPEG" in fmt or "GIF" in fmt or "PNG" in fmt)
+
+    def test_not_between_text_values(self):
+        query = "Select 'SourceFile' as file, 'File:FileType' as format " \
+                "from Database where '.File:FileType' not between 'GIF' and 'PNG'"
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 7)
+        for ele in response:
+            fmt = ele["format"]
+            self.assertTrue("TIFF" in fmt or "GIF" in fmt or "PNG" in fmt)
+
+    def test_distinct(self):
+        query = "Select distinct 'File:FileType' as format from Database"
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 4)
+
+    def test_query(self):
+        test = "SELECT 'SourceFile' as file where \"identifier with ""quotes"" " \
+               "and a trailing space \" IS NOT null -- COMMENT"
+        success, parsed = mql._parser.runTests(test)
+        self.assertTrue(success, f"Failed for test {test}")
+
     def test_run_all_parser_tests(self):
         tests = """\
                 select * From Database where z > 100

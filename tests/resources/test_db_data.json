@@ -23,7 +23,8 @@
   "IFD0:StripByteCounts": 786432,
   "IFD0:PlanarConfiguration": "Chunky",
   "Composite:ImageSize": "512x512",
-  "Composite:Megapixels": 0.262
+  "Composite:Megapixels": 0.262,
+  "mature_content" : false
 },
 {
   "SourceFile": "/home/sheldon/Documents/dev/testing/images/ben-mullins-oXV3bzR7jxI-unsplash.jpg",
@@ -88,7 +89,8 @@
   "ICC-meas:MeasurementFlare": "0.999%",
   "ICC-meas:MeasurementIlluminant": "D65",
   "Composite:ImageSize": "5616x3744",
-  "Composite:Megapixels": 21.0
+  "Composite:Megapixels": 21.0,
+  "mature_content" : false
 },
 {
   "SourceFile": "/home/sheldon/Documents/dev/testing/images/distressed-lena-image-1-scaled (1).jpg",
@@ -110,7 +112,8 @@
   "File:ColorComponents": 3,
   "File:YCbCrSubSampling": "YCbCr4:2:0 (2 2)",
   "Composite:ImageSize": "800x1500",
-  "Composite:Megapixels": 1.2
+  "Composite:Megapixels": 1.2,
+  "mature_content" : true
 },
 {
   "SourceFile": "/home/sheldon/Documents/dev/testing/images/distressed-lena-image-1-scaled.jpg",
@@ -132,7 +135,8 @@
   "File:ColorComponents": 3,
   "File:YCbCrSubSampling": "YCbCr4:2:0 (2 2)",
   "Composite:ImageSize": "800x1500",
-  "Composite:Megapixels": 1.2
+  "Composite:Megapixels": 1.2,
+  "mature_content" : true
 },
 {
   "SourceFile": "/home/sheldon/Documents/dev/testing/images/joyce-hankins-gpiKdZmDQig-unsplash.jpg",
@@ -197,7 +201,8 @@
   "ICC-meas:MeasurementFlare": "0.999%",
   "ICC-meas:MeasurementIlluminant": "D65",
   "Composite:ImageSize": "3024x4032",
-  "Composite:Megapixels": 12.2
+  "Composite:Megapixels": 12.2,
+  "mature_content" : false
 },
 {
   "SourceFile": "/home/sheldon/Documents/dev/testing/images/Lena-Soederberg-256x256-JPEG-image-77-Kbytes.jpg",
@@ -239,7 +244,8 @@
   "Photoshop:PhotoshopQuality": 12,
   "Photoshop:PhotoshopFormat": "Standard",
   "Composite:ImageSize": "256x256",
-  "Composite:Megapixels": 0.066
+  "Composite:Megapixels": 0.066,
+  "mature_content" : true
 },
 {
   "SourceFile": "/home/sheldon/Documents/dev/testing/images/lena_color.gif",
@@ -262,7 +268,8 @@
   "GIF:BitsPerPixel": 8,
   "GIF:BackgroundColor": 0,
   "Composite:ImageSize": "512x512",
-  "Composite:Megapixels": 0.262
+  "Composite:Megapixels": 0.262,
+  "mature_content" : false
 },
 {
   "SourceFile": "/home/sheldon/Documents/dev/testing/images/lena_gray.gif",
@@ -285,7 +292,8 @@
   "GIF:BitsPerPixel": 8,
   "GIF:BackgroundColor": 0,
   "Composite:ImageSize": "512x512",
-  "Composite:Megapixels": 0.262
+  "Composite:Megapixels": 0.262,
+  "mature_content" : false
 },
 {
   "SourceFile": "/home/sheldon/Documents/dev/testing/images/lena_hires.jpg",
@@ -324,7 +332,8 @@
   "Adobe:APP14Flags1": "(none)",
   "Adobe:ColorTransform": "YCbCr",
   "Composite:ImageSize": "1084x2318",
-  "Composite:Megapixels": 2.5
+  "Composite:Megapixels": 2.5,
+  "mature_content" : true
 },
 {
   "SourceFile": "/home/sheldon/Documents/dev/testing/images/lena_std.tif",
@@ -351,7 +360,8 @@
   "IFD0:StripByteCounts": 786432,
   "IFD0:PlanarConfiguration": "Chunky",
   "Composite:ImageSize": "512x512",
-  "Composite:Megapixels": 0.262
+  "Composite:Megapixels": 0.262,
+  "mature_content" : false
 },
 {
   "SourceFile": "/home/sheldon/Documents/dev/testing/images/lena_unpub.jpg",
@@ -390,7 +400,8 @@
   "Adobe:APP14Flags1": "(none)",
   "Adobe:ColorTransform": "YCbCr",
   "Composite:ImageSize": "292x433",
-  "Composite:Megapixels": 0.126
+  "Composite:Megapixels": 0.126,
+  "mature_content" : true
 },
 {
   "SourceFile": "/home/sheldon/Documents/dev/testing/images/Lenna_(test_image).png",
@@ -414,7 +425,8 @@
   "PNG:Interlace": "Noninterlaced",
   "PNG:SRGBRendering": "Perceptual",
   "Composite:ImageSize": "512x512",
-  "Composite:Megapixels": 0.262
+  "Composite:Megapixels": 0.262,
+  "mature_content" : false
 },
 {
   "SourceFile": "/home/sheldon/Documents/dev/testing/images/len_full.jpg",
@@ -453,7 +465,8 @@
   "Adobe:APP14Flags1": "(none)",
   "Adobe:ColorTransform": "YCbCr",
   "Composite:ImageSize": "400x855",
-  "Composite:Megapixels": 0.342
+  "Composite:Megapixels": 0.342,
+  "mature_content" : false
 },
 {
   "SourceFile": "/home/sheldon/Documents/dev/testing/images/Original-test-image-Lena.png",
@@ -476,7 +489,8 @@
   "PNG:Filter": "Adaptive",
   "PNG:Interlace": "Noninterlaced",
   "Composite:ImageSize": "455x436",
-  "Composite:Megapixels": 0.198
+  "Composite:Megapixels": 0.198,
+  "mature_content" : false
 },
 {
   "SourceFile": "/home/sheldon/Documents/dev/testing/images/ruler.512.tiff",
@@ -503,5 +517,6 @@
   "IFD0:StripByteCounts": 262144,
   "IFD0:PlanarConfiguration": "Chunky",
   "Composite:ImageSize": "512x512",
-  "Composite:Megapixels": 0.262
+  "Composite:Megapixels": 0.262,
+  "mature_content" : false
 }]

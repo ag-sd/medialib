@@ -2,7 +2,7 @@
 A Collection Manager built on the excellent `exiftool`, written in QT
 
 ## Features
-MediaLib gets out of your way and shows you metadata information that's relevant to the files you are viewing. However, you can leverage its powerful database tools to build large libraries of all your media with support for search, export and preview
+MediaLib gets out of your way and shows you metadata information that's relevant to the files you are viewing. However, you can leverage its powerful database and SQL-like search tools to build large libraries of all your media with support for search, export and preview
 - [x] Support for different views (json, table)
 - [x] Support for different video, audio and image formats. For a full list of supported formats, run `exiftool -listf` on the command line
 

@@ -1,6 +1,8 @@
 # https://stackoverflow.com/questions/44170597/pyparsing-nestedexpr-and-nested-parentheses
 # https://github.com/pyparsing/pyparsing/tree/master/examples
 # https://www.sqlite.org/lang_expr.html
+# https://sqlparse.readthedocs.io/en/latest/
+
 import json
 import subprocess
 
@@ -10,9 +12,9 @@ from pyparsing import ParserElement, Suppress, Literal, Forward, CaselessKeyword
 
 import app
 
-_EMPTY_STRING = ""
-
-_REGEX_OPS = "ixn"
+_MQ_EMPTY_STRING = ""
+_MQ_REGEX_OPS = "ixn"
+_MQ_LITERAL_KEYWORDS = ["TRUE", "FALSE", "NULL"]
 
 
 class _Grammar:
@@ -96,7 +98,6 @@ class _Grammar:
     NOT_BETWEEN = Group(NOT + BETWEEN)
     NOT_IN = Group(NOT + IN)
     NOT_LIKE = Group(NOT + LIKE)
-    # NOT_MATCH = Group(NOT + MATCH)
     NOT_REGEXP = Group(NOT + REGEXP)
 
     UNARY, BINARY, TERNARY = 1, 2, 3
@@ -152,7 +153,7 @@ class _Grammar:
 
     select_core = (
             SELECT
-            + Optional(DISTINCT | ALL)
+            + Group(Optional(DISTINCT | ALL))("select_opts")
             + Group(delimitedList(result_column))("columns")
             + Optional(FROM + "Database")
             + Optional(WHERE + expr("where_expr"))
@@ -189,19 +190,39 @@ def query_file(query: str, file: str):
     return json.loads(transformed.stdout.decode("utf8"))
 
 
+# TODO:
+#     - HAVING
+#     - LIMIT
+#     - OFFSET
+#     - ORDER BY
+#     - TIME OPERATIONS
 def _evaluate_query(query: str):
     tokenized_query = _parser.parseString(query, parseAll=True).asDict()
     # SELECT Clause
     select_expr = _choose_columns(tokenized_query["columns"])
-    if select_expr != _EMPTY_STRING:
+    if select_expr != _MQ_EMPTY_STRING:
         select_expr = f"| {{ {select_expr} }}"
+    # SELECT Options
+    opts_expr = _MQ_EMPTY_STRING
+    if "select_opts" in tokenized_query:
+        # One of the ALL or DISTINCT keywords may follow the SELECT keyword in a simple SELECT statement.
+        # If the simple SELECT is a SELECT ALL, then the entire set of result rows are returned by the SELECT.
+        # If neither ALL or DISTINCT are present, then the behavior is as if ALL were specified.
+        # If the simple SELECT is a SELECT DISTINCT, then duplicate rows are removed from the set of result rows
+        # before it is returned. For the purposes of detecting duplicate rows,
+        # two NULL values are considered to be equal.
+        opts = tokenized_query["select_opts"]
+        if "DISTINCT" in opts:
+            opts_expr = " | unique"
+        elif "ALL" in opts:
+            app.logger.debug("Ignore ALL keyword as this is default behavior of the query engine")
     # WHERE Clause
     if "where_expr" in tokenized_query:
         where_expr = f" | select( {_flatten(tokenized_query['where_expr'])} )"
     else:
-        where_expr = _EMPTY_STRING
+        where_expr = _MQ_EMPTY_STRING
 
-    return f"[.[] {where_expr} {select_expr}]"
+    return f"[.[] {where_expr} {select_expr}] {opts_expr}".strip()
 
 
 def _choose_columns(col_list: list) -> str:
@@ -209,7 +230,7 @@ def _choose_columns(col_list: list) -> str:
     # First Check for all columns (*)
     if len(col_list) == 1 and col_list[0]['col'] == "*":
         # Empty string represents no field selection by JQ
-        return _EMPTY_STRING
+        return _MQ_EMPTY_STRING
 
     # Then check for individual columns
     columns = []
@@ -227,27 +248,30 @@ def _choose_columns(col_list: list) -> str:
 
 
 # TODO
-# | IS
-# | IS_NOT
 # | BETWEEN
 def _flatten(expression):
     if isinstance(expression, list):
         operator = _compose_operator(expression[1])
-        suffix = " | not" if operator.startswith("NOT_") else _EMPTY_STRING
+        suffix = " | not" if operator.startswith("NOT_") else _MQ_EMPTY_STRING
         match operator:
             case "<>":
                 return f"(  {_flatten(expression[0])}  !=  {_flatten(expression[2])}  )"
             case "=":
                 return f"(  {_flatten(expression[0])}  ==  {_flatten(expression[2])}  )"
-            case "IS" | "IS_NOT":
+            case "IS":
                 # The IS and IS NOT operators work like = and != except when one or both of the operands are NULL
-                return f"(  {_flatten(expression[0])}  ==  {_flatten(expression[2])}  )"
+                # get the NOT
+                is_not = expression[2][0] == "NOT"
+                if is_not:
+                    expression[2] = expression[2].pop()
+                suffix = " | not" if is_not else _MQ_EMPTY_STRING
+                return f"(  {_flatten(expression[0])}  ==  {_flatten(expression[2])} {suffix} )"
             case "LIKE" | "NOT_LIKE" | "REGEXP" | "NOT_REGEXP":
                 if operator == "LIKE" or operator == "NOT_LIKE":
-                    regexp = _compose_like_to_regex(expression[2])
+                    regexp = _compose_like_operand(expression[2])
                 else:
                     regexp = expression[2]
-                return f"( {_flatten(expression[0])} | test(\"{regexp}\"; \"{_REGEX_OPS}\")  {suffix}  )"
+                return f"( {_flatten(expression[0])} | test(\"{regexp}\"; \"{_MQ_REGEX_OPS}\")  {suffix}  )"
             case "AND" | "OR":
                 return f"(  {_flatten(expression[0])}  {operator.lower()}  {_flatten(expression[2])}  )"
             case "IN" | "NOT_IN":
@@ -257,6 +281,19 @@ def _flatten(expression):
                 # else completely
                 in_list = [str(_flatten(x)) for x in expression[2]]
                 return f"(  {_flatten(expression[0])} | IN ({', '.join(in_list)}) {suffix} )"
+            case "BETWEEN" | "NOT_BETWEEN":
+                # The BETWEEN operator is logically equivalent to a pair of comparisons.
+                # "x BETWEEN y AND z" is equivalent to "x>=y AND x<=z"
+                # except that with BETWEEN, the x expression is only evaluated once.
+                # https://www.sqlite.org/lang_expr.html#between
+                operand_x = _flatten(expression[0])
+                operand_y = _flatten(expression[2])
+                operand_z = _flatten(expression[4])
+                if operator == "NOT_BETWEEN":
+                    # Flip x,y operands with an OR
+                    return f"( ({operand_x} >= {operand_z}) or ({operand_x} <= {operand_y}) )"
+                else:
+                    return f"( ({operand_x} >= {operand_y}) and ({operand_x} <= {operand_z}) )"
             case _:
                 return f"(  {_flatten(expression[0])}  {operator}  {_flatten(expression[2])}  )"
     elif isinstance(expression, dict):
@@ -265,6 +302,8 @@ def _flatten(expression):
         # Wrap strings in quotes
         if expression.startswith(".") or expression.startswith("db."):
             return f'."{_compose_field_name(expression)}"'
+        if expression in _MQ_LITERAL_KEYWORDS:
+            return expression.lower()
         return f'"{expression}"'
     else:
         return expression
@@ -286,7 +325,7 @@ def _compose_operator(expression):
         return expression
 
 
-def _compose_like_to_regex(expression: str) -> str:
+def _compose_like_operand(expression: str) -> str:
     """
     Converts a like search term to a regex pattern based on the following rules
     https://www.w3schools.com/sql/sql_like.asp
@@ -304,16 +343,3 @@ def _compose_like_to_regex(expression: str) -> str:
     expression = expression.replace("%", ".*?")
     expression = expression.replace("_", ".")
     return f"^{expression}$"
-
-
-# cat home__sheldon__Documents__dev__testing__images.json | jq -c '.[] | select( ."File:ImageHeight">2315 or ."File:ImageHeight" ==3744) | select(."SourceFile" | contains("unsplash")) | {message: ."SourceFile", height: ."File:ImageHeight"}'
-# cat home__sheldon__Documents__dev__testing__images.json | jq -c '.[] | select( (."File:ImageHeight">2315) or (."File:ImageHeight" ==3744) or (."SourceFile" | contains("unsplash"))) | {message: ."SourceFile", height: ."File:ImageHeight"}'
-if __name__ == "__main__":
-    # TODO Renam this file to mq
-    # resp = Tokenizer.tokenize(" SELECT x.a as Foo, b as Bar, c WHERE (1!=2 or 2!=3) and 2==3 or (foo=='bar')")
-    # resp = Tokenizer.tokenize(" SELECT x.a as Foo, b as Bar, c WHERE (1!=2 or 2!=3) and goo<>boo or (foo=='bar')")
-    # resp = JQ()._evaluate_query(" SELECT x.a as Foo, b as Bar, c WHERE (1!=2 or 2!=3) and goo<>boo or (foo=='bar')")
-    resp = query_file(" SELECT * from Database", "/mnt/dev/medialib/tests/resources/test_db_data.json")
-
-    print(resp)
-    print("All done!")
