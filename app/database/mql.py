@@ -8,10 +8,27 @@ import subprocess
 
 from pyparsing import ParserElement, Suppress, Literal, Forward, CaselessKeyword, MatchFirst, QuotedString, Word, \
     alphas, alphanums, pyparsing_common, restOfLine, Regex, Combine, oneOf, nums, Optional, delimitedList, Group, \
-    infixNotation, opAssoc, ZeroOrMore
+    infixNotation, opAssoc, ZeroOrMore, ParseException
 
 import app
 
+_MQ_T_LIMIT = "__LIMIT__"
+_MQ_T_ORDER_BY_TERMS = "ORDER_BY_TERMS"
+_MQ_T_HAVING_EXPRESSION = "HAVING_EXPR"
+_MQ_T_ORDER_KEY = "ORDER_KEY"
+_MQ_T_WHERE_EXPRESSION = "__WHERE_EXPR__"
+_MQ_T_SELECT_OPTS = "__SELECT_OPTS__"
+_MQ_T_COLS = "__COLUMNS__"
+_MQ_T_COL_ALIAS = "__ALIAS__"
+_MQ_T_COL_TABLE = "__COL_TABLE__"
+_MQ_T_COL_DB = "__COL_DB__"
+_MQ_T_COL_TAB = "__COL_TAB__"
+_MQ_T_COL = "__COL__"
+
+
+_MQ_SUPPORTED_KEYWORDS = "ALL AND ASC DESC ON AS NOT SELECT DISTINCT FROM WHERE GROUP BY " \
+                         "HAVING ORDER LIMIT OFFSET OR ISNULL NOTNULL NULL IS BETWEEN ELSE " \
+                         "EXISTS IN LIKE REGEXP CURRENT_TIME CURRENT_DATE CURRENT_TIMESTAMP TRUE FALSE"
 _MQ_EMPTY_STRING = ""
 _MQ_REGEX_OPS = "ixn"
 _MQ_LITERAL_KEYWORDS = ["TRUE", "FALSE", "NULL"]
@@ -35,11 +52,7 @@ class _Grammar:
     # keywords
     keywords = {
         k: CaselessKeyword(k)
-        for k in """\
-                        ALL AND ASC DESC ON AS NOT
-                        SELECT DISTINCT FROM WHERE GROUP BY HAVING ORDER LIMIT OFFSET OR ISNULL NOTNULL NULL IS BETWEEN ELSE
-                        EXISTS IN LIKE REGEXP CURRENT_TIME CURRENT_DATE CURRENT_TIMESTAMP TRUE FALSE
-                        """.split()
+        for k in _MQ_SUPPORTED_KEYWORDS.split()
     }
     vars().update(keywords)
 
@@ -88,10 +101,10 @@ class _Grammar:
             | literal_value
             | bind_parameter
             | Group(
-        identifier("col_db") + DOT + identifier("col_tab") + DOT + identifier("col")
+        identifier(_MQ_T_COL_DB) + DOT + identifier(_MQ_T_COL_TAB) + DOT + identifier(_MQ_T_COL)
     )
-            | Group(identifier("col_tab") + DOT + identifier("col"))
-            | Group(identifier("col"))
+            | Group(identifier(_MQ_T_COL_TAB) + DOT + identifier(_MQ_T_COL))
+            | Group(identifier(_MQ_T_COL))
     )
 
     NOT_NULL = Group(NOT + NULL)
@@ -135,7 +148,7 @@ class _Grammar:
     )
 
     ordering_term = Group(
-        expr("order_key")
+        expr(_MQ_T_ORDER_KEY)
         + Optional(ASC | DESC)("direction")
     )
 
@@ -146,33 +159,38 @@ class _Grammar:
     )
 
     result_column = Group(
-        STAR("col")
-        | table_name("col_table") + DOT + STAR("col")
-        | expr("col") + Optional(Optional(AS) + column_alias("alias"))
+        STAR(_MQ_T_COL)
+        | table_name(_MQ_T_COL_TABLE) + DOT + STAR(_MQ_T_COL)
+        | expr(_MQ_T_COL) + Optional(Optional(AS) + column_alias(_MQ_T_COL_ALIAS))
     )
 
     select_core = (
             SELECT
-            + Group(Optional(DISTINCT | ALL))("select_opts")
-            + Group(delimitedList(result_column))("columns")
-            + Optional(FROM + "Database")
-            + Optional(WHERE + expr("where_expr"))
+            + Group(Optional(DISTINCT | ALL))(_MQ_T_SELECT_OPTS)
+            + Group(delimitedList(result_column))(_MQ_T_COLS)
+            + Optional(FROM + oneOf("Database"))
+            + Optional(WHERE + expr(_MQ_T_WHERE_EXPRESSION))
             + Optional(
-        Optional(HAVING + expr("having_expr"))
+        Optional(HAVING + expr(_MQ_T_HAVING_EXPRESSION))
     )
     )
 
     select_stmt << (
             select_core
             + ZeroOrMore(select_core)
-            + Optional(ORDER + BY + Group(delimitedList(ordering_term))("order_by_terms"))
+            + Optional(ORDER + BY + Group(delimitedList(ordering_term))(_MQ_T_ORDER_BY_TERMS))
             + Optional(
         LIMIT
-        + (Group(expr + OFFSET + expr) | Group(expr + COMMA + expr) | expr)("limit")
+        + (Group(expr + OFFSET + expr) | Group(expr + COMMA + expr) | expr)(_MQ_T_LIMIT)
     )
     )
 
     select_stmt.ignore(comment)
+
+
+class QueryException(Exception):
+    def __init__(self):
+        super().__init__()
 
 
 _parser = _Grammar.select_stmt
@@ -183,65 +201,73 @@ def query_data(query: str, input_data: str):
 
 
 def query_file(query: str, file: str):
-    filter_map = _evaluate_query(query)
-    app.logger.debug(f"Applying JQ filter-map:  cat {file} | jq '{filter_map}'")
-    transformed = subprocess.run(["jq", filter_map, file], capture_output=True)
-    transformed.check_returncode()
-    return json.loads(transformed.stdout.decode("utf8"))
+    try:
+        filter_map = _evaluate_query(query)
+        app.logger.debug(f"Applying JQ filter-map:  cat {file} | jq '{filter_map}'")
+        transformed = subprocess.run(["jq", filter_map, file], capture_output=True)
+        transformed.check_returncode()
+        return json.loads(transformed.stdout.decode("utf8"))
+    except ParseException as p:
+        app.logger.error(f"\n{p.explain()}")
+        raise QueryException() from p
+    except subprocess.CalledProcessError as c:
+        raise QueryException() from c
 
 
 # TODO:
 #     - HAVING
-#     - LIMIT
 #     - OFFSET
 #     - ORDER BY
 #     - TIME OPERATIONS
+#     - UNION | INTERSECT | EXCEPT
 def _evaluate_query(query: str):
     tokenized_query = _parser.parseString(query, parseAll=True).asDict()
     # SELECT Clause
-    select_expr = _choose_columns(tokenized_query["columns"])
+    select_expr = _choose_columns(tokenized_query[_MQ_T_COLS])
     if select_expr != _MQ_EMPTY_STRING:
         select_expr = f"| {{ {select_expr} }}"
     # SELECT Options
     opts_expr = _MQ_EMPTY_STRING
-    if "select_opts" in tokenized_query:
+    if _MQ_T_SELECT_OPTS in tokenized_query:
         # One of the ALL or DISTINCT keywords may follow the SELECT keyword in a simple SELECT statement.
         # If the simple SELECT is a SELECT ALL, then the entire set of result rows are returned by the SELECT.
         # If neither ALL or DISTINCT are present, then the behavior is as if ALL were specified.
         # If the simple SELECT is a SELECT DISTINCT, then duplicate rows are removed from the set of result rows
         # before it is returned. For the purposes of detecting duplicate rows,
         # two NULL values are considered to be equal.
-        opts = tokenized_query["select_opts"]
-        if "DISTINCT" in opts:
+        if "DISTINCT" in tokenized_query[_MQ_T_SELECT_OPTS]:
             opts_expr = " | unique"
-        elif "ALL" in opts:
+        elif "ALL" in tokenized_query[_MQ_T_SELECT_OPTS]:
             app.logger.debug("Ignore ALL keyword as this is default behavior of the query engine")
     # WHERE Clause
-    if "where_expr" in tokenized_query:
-        where_expr = f" | select( {_flatten(tokenized_query['where_expr'])} )"
+    if _MQ_T_WHERE_EXPRESSION in tokenized_query:
+        where_expr = f" | select( {_flatten(tokenized_query[_MQ_T_WHERE_EXPRESSION])} )"
     else:
         where_expr = _MQ_EMPTY_STRING
+
+    # Limit
+    if _MQ_T_LIMIT in tokenized_query:
+        return f"[ limit( {tokenized_query[_MQ_T_LIMIT][0]} ; .[] {where_expr} {select_expr} ) ] {opts_expr}".strip()
 
     return f"[.[] {where_expr} {select_expr}] {opts_expr}".strip()
 
 
 def _choose_columns(col_list: list) -> str:
-    # TODO: BUG: change 'col' to maybe _col_ as line 214 will be true if a field contains the chars col
     # First Check for all columns (*)
-    if len(col_list) == 1 and col_list[0]['col'] == "*":
+    if len(col_list) == 1 and col_list[0][_MQ_T_COL] == "*":
         # Empty string represents no field selection by JQ
         return _MQ_EMPTY_STRING
 
     # Then check for individual columns
     columns = []
     for column in col_list:
-        node = column["col"]
-        if "col" in node:
-            field = node["col"][0]
+        node = column[_MQ_T_COL]
+        if _MQ_T_COL in node:
+            field = node[_MQ_T_COL][0]
         else:
             field = node
 
-        alias = column["alias"][0] if "alias" in column else field
+        alias = column[_MQ_T_COL_ALIAS][0] if _MQ_T_COL_ALIAS in column else field
         columns.append(f'"{alias}":.["{_compose_field_name(field)}"]')
 
     return f"{','.join(columns)}"
@@ -297,7 +323,7 @@ def _flatten(expression):
             case _:
                 return f"(  {_flatten(expression[0])}  {operator}  {_flatten(expression[2])}  )"
     elif isinstance(expression, dict):
-        return expression['col'][0]
+        return expression[_MQ_T_COL][0]
     elif isinstance(expression, str):
         # Wrap strings in quotes
         if expression.startswith(".") or expression.startswith("db."):
