@@ -5,6 +5,7 @@
 
 import json
 import subprocess
+from collections import namedtuple
 
 from pyparsing import ParserElement, Suppress, Literal, Forward, CaselessKeyword, MatchFirst, QuotedString, Word, \
     alphas, alphanums, pyparsing_common, restOfLine, Regex, Combine, oneOf, nums, Optional, delimitedList, Group, \
@@ -24,7 +25,6 @@ _MQ_T_COL_TABLE = "__COL_TABLE__"
 _MQ_T_COL_DB = "__COL_DB__"
 _MQ_T_COL_TAB = "__COL_TAB__"
 _MQ_T_COL = "__COL__"
-
 
 _MQ_SUPPORTED_KEYWORDS = "ALL AND ASC DESC ON AS NOT SELECT DISTINCT FROM WHERE GROUP BY " \
                          "HAVING ORDER LIMIT OFFSET OR ISNULL NOTNULL NULL IS BETWEEN ELSE " \
@@ -245,32 +245,97 @@ def _evaluate_query(query: str):
     else:
         where_expr = _MQ_EMPTY_STRING
 
+    # Order By
+    order_by_terms = _MQ_EMPTY_STRING
+    if _MQ_T_ORDER_BY_TERMS in tokenized_query:
+        order_by_terms = _compose_order_by_terms(tokenized_query[_MQ_T_COLS], tokenized_query[_MQ_T_ORDER_BY_TERMS])
+
     # Limit
     if _MQ_T_LIMIT in tokenized_query:
-        return f"[ limit( {tokenized_query[_MQ_T_LIMIT][0]} ; .[] {where_expr} {select_expr} ) ] {opts_expr}".strip()
+        return f"[ limit( {tokenized_query[_MQ_T_LIMIT][0]} ; .[] {where_expr} {select_expr} ) ] " \
+               f"{opts_expr} {order_by_terms}".strip()
 
-    return f"[.[] {where_expr} {select_expr}] {opts_expr}".strip()
+    return f"[.[] {where_expr} {select_expr}] {opts_expr} {order_by_terms}".strip()
 
 
 def _choose_columns(col_list: list) -> str:
     # First Check for all columns (*)
-    if len(col_list) == 1 and col_list[0][_MQ_T_COL] == "*":
+    if _is_select_star(col_list):
         # Empty string represents no field selection by JQ
         return _MQ_EMPTY_STRING
 
     # Then check for individual columns
     columns = []
     for column in col_list:
-        node = column[_MQ_T_COL]
-        if _MQ_T_COL in node:
-            field = node[_MQ_T_COL][0]
-        else:
-            field = node
-
-        alias = column[_MQ_T_COL_ALIAS][0] if _MQ_T_COL_ALIAS in column else field
-        columns.append(f'"{alias}":.["{_compose_field_name(field)}"]')
+        qualified = _get_column_and_alias(column)
+        columns.append(f'"{qualified.alias}":.["{qualified.field}"]')
 
     return f"{','.join(columns)}"
+
+
+def _is_select_star(col_list: list) -> bool:
+    """
+    Checks if the columns list is a simple `select *` query.
+    Args:
+        col_list: The tokenized columns list from the query
+
+    Returns: Will return true if the columns list is a select *
+
+    """
+    return len(col_list) == 1 and col_list[0][_MQ_T_COL] == "*"
+
+
+def _get_column_and_alias(column: dict) -> tuple:
+    """
+    Returns a named tuple representing the column and its alias
+    Args:
+        column: The tokenized column entry from the query
+
+    Returns: A named tuple Column = namedtuple('Column', 'field alias')
+
+    """
+    Column = namedtuple('Column', 'field alias')
+
+    node = column[_MQ_T_COL]
+    if _MQ_T_COL in node:
+        # Aliased columns
+        field = node[_MQ_T_COL][0]
+    else:
+        field = node
+
+    alias = column[_MQ_T_COL_ALIAS][0] if _MQ_T_COL_ALIAS in column else field
+    return Column(field=_compose_field_name(field), alias=alias)
+
+
+def _compose_order_by_terms(col_list: list, order_by_terms: dict) -> str:
+    """
+    Generates a JQ order by command with a few limitations.
+    1. Mixed order by keys are not supported. This is because different JQ commands are required to handle
+    nulls, numbers and strings. As the value of the data is unknown, this cannot be correctly predicted.
+    2. If a column is aliased, that alias must be used in the order by. If the column name is used instead,
+    JQ will ignore the ordering
+
+    Args:
+        col_list: The list of columns from the select clause
+        order_by_terms: The order by terms
+
+    Returns: A string representation of the JQ sort_by command
+
+    Raises: QueryException if either of the 2 rules mentioned above are violated
+
+    """
+
+    # Step 1: Get a list of columns / aliases from the select statement
+    select_params = []
+    is_select_star = _is_select_star(col_list)
+    for column in col_list:
+        qualified = _get_column_and_alias(column)
+        select_params.append(qualified.alias)
+
+    # Step 2: Check if order_by_terms has mixed sorting
+
+    # Ensure that each field in the order by is present in the select_params OR this query is a select *
+    return _MQ_EMPTY_STRING
 
 
 # TODO

@@ -341,11 +341,19 @@ class TestMQL(unittest.TestCase):
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertTrue(len(response) == 6)
 
-    def test_order_by(self):
+    def test_order_by_multiple(self):
         # cat /home/sheldon/Documents/dev/medialib/tests/resources/test_db_data.json | jq '[ limit( 600 ; .[]  | { "Size":.["System:FileSize"] } ) ] | sort_by(.Size)'
         query = "select 'SourceFile', 'System:FileSize' as size From Database order by size, file"
         response = mql.query_file(query, self.TEST_INPUT)
         print(json.dumps(response, indent=3))
+
+    def test_order_by_multiple_mixed_order_keys(self):
+        pass
+
+    def test_order_by_single_order_key(self):
+        pass
+
+
 
     def test_run_all_parser_tests(self):
         tests = """\
