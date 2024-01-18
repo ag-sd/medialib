@@ -343,7 +343,7 @@ class TestMQL(unittest.TestCase):
 
     def test_order_by_multiple(self):
         # cat /home/sheldon/Documents/dev/medialib/tests/resources/test_db_data.json | jq '[ limit( 600 ; .[]  | { "Size":.["System:FileSize"] } ) ] | sort_by(.Size)'
-        query = "select 'SourceFile', 'System:FileSize' as size From Database order by size, file"
+        query = "select 'SourceFile', 'System:FileSize' as size From Database order by size, file, 3 asc"
         response = mql.query_file(query, self.TEST_INPUT)
         print(json.dumps(response, indent=3))
 

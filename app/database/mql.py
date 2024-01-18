@@ -15,8 +15,9 @@ import app
 
 _MQ_T_LIMIT = "__LIMIT__"
 _MQ_T_ORDER_BY_TERMS = "ORDER_BY_TERMS"
-_MQ_T_HAVING_EXPRESSION = "HAVING_EXPR"
+_MQ_T_ORDER_BY_DIRECTION = "direction"
 _MQ_T_ORDER_KEY = "ORDER_KEY"
+_MQ_T_HAVING_EXPRESSION = "HAVING_EXPR"
 _MQ_T_WHERE_EXPRESSION = "__WHERE_EXPR__"
 _MQ_T_SELECT_OPTS = "__SELECT_OPTS__"
 _MQ_T_COLS = "__COLUMNS__"
@@ -149,7 +150,7 @@ class _Grammar:
 
     ordering_term = Group(
         expr(_MQ_T_ORDER_KEY)
-        + Optional(ASC | DESC)("direction")
+        + Optional(ASC | DESC)(_MQ_T_ORDER_BY_DIRECTION)
     )
 
     single_source = (
@@ -189,8 +190,8 @@ class _Grammar:
 
 
 class QueryException(Exception):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, message):
+        super().__init__(message)
 
 
 _parser = _Grammar.select_stmt
@@ -209,9 +210,9 @@ def query_file(query: str, file: str):
         return json.loads(transformed.stdout.decode("utf8"))
     except ParseException as p:
         app.logger.error(f"\n{p.explain()}")
-        raise QueryException() from p
+        raise QueryException("An error occurred while parsing the query") from p
     except subprocess.CalledProcessError as c:
-        raise QueryException() from c
+        raise QueryException("An error occurred while querying the data") from c
 
 
 # TODO:
@@ -307,17 +308,27 @@ def _get_column_and_alias(column: dict) -> tuple:
     return Column(field=_compose_field_name(field), alias=alias)
 
 
-def _compose_order_by_terms(col_list: list, order_by_terms: dict) -> str:
+def _compose_order_by_terms(col_list: list, order_by_keys: dict) -> str:
     """
     Generates a JQ order by command with a few limitations.
-    1. Mixed order by keys are not supported. This is because different JQ commands are required to handle
+    1. Mixed order by directions are not supported. This is because different JQ commands are required to handle
     nulls, numbers and strings. As the value of the data is unknown, this cannot be correctly predicted.
     2. If a column is aliased, that alias must be used in the order by. If the column name is used instead,
     JQ will ignore the ordering
 
+    --> https://www.sqlite.org/lang_select.html#orderby
+    Each ORDER BY expression is processed as follows:
+    1. If the ORDER BY expression is a constant integer K then the expression is considered an alias for the
+    K-th column of the result set (columns are numbered from left to right starting with 1).
+    2. If the ORDER BY expression is an identifier that corresponds to the alias of one of the output columns,
+    then the expression is considered an alias for that column.
+    3. Otherwise, if the ORDER BY expression is any other expression, it is evaluated and the returned value
+    used to order the output rows. ORDER BY expressions that are not aliases to output columns
+    must be exactly the same as an expression used as an output column.
+
     Args:
         col_list: The list of columns from the select clause
-        order_by_terms: The order by terms
+        order_by_keys: The order by keys
 
     Returns: A string representation of the JQ sort_by command
 
@@ -332,14 +343,28 @@ def _compose_order_by_terms(col_list: list, order_by_terms: dict) -> str:
         qualified = _get_column_and_alias(column)
         select_params.append(qualified.alias)
 
-    # Step 2: Check if order_by_terms has mixed sorting
+    # Step 2: Check if order_by_terms has mixed sorting and confirm all
+    sort_order = set()
+    for key in order_by_keys:
+        if _MQ_T_COL in key[_MQ_T_ORDER_KEY]:
+            column_key = key[_MQ_T_ORDER_KEY][_MQ_T_COL][0]
+        elif isinstance(key[_MQ_T_ORDER_KEY], int):
+            column_idx = key[_MQ_T_ORDER_KEY]
+            if 1 <= column_idx <= len(select_params):
+                column_key = select_params[column_idx]
+            else:
+                raise QueryException(f"Index {column_idx} does not reference a valid column from the select clause")
 
-    # Ensure that each field in the order by is present in the select_params OR this query is a select *
+        if _MQ_T_ORDER_BY_DIRECTION in key:
+            sort_order.add(key[_MQ_T_ORDER_BY_DIRECTION])
+        else:
+            sort_order.add("ASC")
+        if not (is_select_star or column_key in select_params):
+            raise QueryException(f"Column {column_key} is not part of the select clause")
+
     return _MQ_EMPTY_STRING
 
 
-# TODO
-# | BETWEEN
 def _flatten(expression):
     if isinstance(expression, list):
         operator = _compose_operator(expression[1])
