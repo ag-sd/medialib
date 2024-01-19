@@ -27,7 +27,10 @@ _MQ_T_COL_DB = "__COL_DB__"
 _MQ_T_COL_TAB = "__COL_TAB__"
 _MQ_T_COL = "__COL__"
 
-_MQ_SUPPORTED_KEYWORDS = "ALL AND ASC DESC ON AS NOT SELECT DISTINCT FROM WHERE GROUP BY " \
+_MQ_K_OB_ASC = "ASC"
+_MQ_K_OB_DESC = "DESC"
+
+_MQ_SUPPORTED_KEYWORDS = f"ALL AND {_MQ_K_OB_ASC} {_MQ_K_OB_DESC} ON AS NOT SELECT DISTINCT FROM WHERE GROUP BY " \
                          "HAVING ORDER LIMIT OFFSET OR ISNULL NOTNULL NULL IS BETWEEN ELSE " \
                          "EXISTS IN LIKE REGEXP CURRENT_TIME CURRENT_DATE CURRENT_TIMESTAMP TRUE FALSE"
 _MQ_EMPTY_STRING = ""
@@ -343,26 +346,36 @@ def _compose_order_by_terms(col_list: list, order_by_keys: dict) -> str:
         qualified = _get_column_and_alias(column)
         select_params.append(qualified.alias)
 
-    # Step 2: Check if order_by_terms has mixed sorting and confirm all
-    sort_order = set()
+    # Step 2: Check if order_by_terms has mixed sorting and confirm all order by keys are valid
+    order_sort = set()
+    order_keys = []
     for key in order_by_keys:
-        if _MQ_T_COL in key[_MQ_T_ORDER_KEY]:
-            column_key = key[_MQ_T_ORDER_KEY][_MQ_T_COL][0]
-        elif isinstance(key[_MQ_T_ORDER_KEY], int):
+        # Get column
+        if isinstance(key[_MQ_T_ORDER_KEY], int):
             column_idx = key[_MQ_T_ORDER_KEY]
             if 1 <= column_idx <= len(select_params):
-                column_key = select_params[column_idx]
+                column_key = select_params[column_idx - 1]
             else:
                 raise QueryException(f"Index {column_idx} does not reference a valid column from the select clause")
-
-        if _MQ_T_ORDER_BY_DIRECTION in key:
-            sort_order.add(key[_MQ_T_ORDER_BY_DIRECTION])
+        elif _MQ_T_COL in key[_MQ_T_ORDER_KEY]:
+            column_key = key[_MQ_T_ORDER_KEY][_MQ_T_COL][0]
         else:
-            sort_order.add("ASC")
+            raise QueryException("Unable to parse column key from order by clause")
+
+        # Get Sort Order
+        if _MQ_T_ORDER_BY_DIRECTION in key:
+            order_sort.add(key[_MQ_T_ORDER_BY_DIRECTION].upper())
+        else:
+            order_sort.add(_MQ_K_OB_ASC)
         if not (is_select_star or column_key in select_params):
             raise QueryException(f"Column {column_key} is not part of the select clause")
 
-    return _MQ_EMPTY_STRING
+        order_keys.append(f".\"{column_key}\"")
+
+    if len(order_sort) != 1:
+        raise QueryException("Ordering keys in different sort orders is currently not supported")
+
+    return f" | sort_by( {', '.join(order_keys)} ) {' | reverse' if _MQ_K_OB_DESC in order_sort else ''}"
 
 
 def _flatten(expression):

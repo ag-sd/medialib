@@ -1,4 +1,3 @@
-import json
 import unittest
 from pathlib import Path
 
@@ -342,10 +341,12 @@ class TestMQL(unittest.TestCase):
         self.assertTrue(len(response) == 6)
 
     def test_order_by_multiple(self):
-        # cat /home/sheldon/Documents/dev/medialib/tests/resources/test_db_data.json | jq '[ limit( 600 ; .[]  | { "Size":.["System:FileSize"] } ) ] | sort_by(.Size)'
-        query = "select 'SourceFile', 'System:FileSize' as size From Database order by size, file, 3 asc"
+        query = ("select 'JFIF:XResolution' as rez, 'Composite:Megapixels' as mp, 'File:FileType' as type "
+                 "From Database order by rez, 2")
         response = mql.query_file(query, self.TEST_INPUT)
-        print(json.dumps(response, indent=3))
+        self.assertEqual(response[0]['rez'], None)
+        self.assertEqual(response[0]['mp'], 0.198)
+        self.assertEqual(response[0]['type'], "PNG")
 
     def test_order_by_multiple_mixed_order_keys(self):
         pass
