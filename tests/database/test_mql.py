@@ -348,11 +348,102 @@ class TestMQL(unittest.TestCase):
         self.assertEqual(response[0]['mp'], 0.198)
         self.assertEqual(response[0]['type'], "PNG")
 
+        self.assertEqual(response[1]['rez'], None)
+        self.assertEqual(response[1]['mp'], 0.262)
+        self.assertEqual(response[1]['type'], "TIFF")
+
+        self.assertEqual(response[-1]['rez'], 100)
+        self.assertEqual(response[-1]['mp'], 2.5)
+        self.assertEqual(response[-1]['type'], "JPEG")
+
+        self.assertEqual(response[-2]['rez'], 100)
+        self.assertEqual(response[-2]['mp'], 0.342)
+        self.assertEqual(response[-2]['type'], "JPEG")
+
+        self.assertEqual(response[9]['rez'], 72)
+        self.assertEqual(response[9]['mp'], 0.066)
+        self.assertEqual(response[9]['type'], "JPEG")
+
     def test_order_by_multiple_mixed_order_keys(self):
-        pass
+        query = ("select 'JFIF:XResolution' as rez, 'Composite:Megapixels' as mp, 'File:FileType' as type "
+                 "From Database order by rez, 2 desc")
+        self.assertRaises(QueryException, mql.query_file, query, self.TEST_INPUT)
 
     def test_order_by_single_order_key(self):
-        pass
+        query = ("select 'JFIF:XResolution' as rez, 'Composite:Megapixels' as mp, 'File:FileType' as type "
+                 "From Database order by rez")
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(response[0]['rez'], None)
+        self.assertEqual(response[0]['mp'], 0.262)
+        self.assertEqual(response[0]['type'], "TIFF")
+
+        self.assertEqual(response[1]['rez'], None)
+        self.assertEqual(response[1]['mp'], 1.2)
+        self.assertEqual(response[1]['type'], "JPEG")
+
+        self.assertEqual(response[-1]['rez'], 100)
+        self.assertEqual(response[-1]['mp'], 0.342)
+        self.assertEqual(response[-1]['type'], "JPEG")
+
+        self.assertEqual(response[-2]['rez'], 100)
+        self.assertEqual(response[-2]['mp'], 2.5)
+        self.assertEqual(response[-2]['type'], "JPEG")
+
+    def test_order_by_single_order_key_desc(self):
+        query = ("select 'JFIF:XResolution' as rez, 'Composite:Megapixels' as mp, 'File:FileType' as type "
+                 "From Database order by rez desc")
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(response[0]['rez'], 100)
+        self.assertEqual(response[0]['mp'], 0.342)
+        self.assertEqual(response[0]['type'], "JPEG")
+
+        self.assertEqual(response[1]['rez'], 100)
+        self.assertEqual(response[1]['mp'], 2.5)
+        self.assertEqual(response[1]['type'], "JPEG")
+
+        self.assertEqual(response[-1]['rez'], None)
+        self.assertEqual(response[-1]['mp'], 0.262)
+        self.assertEqual(response[-1]['type'], "TIFF")
+
+        self.assertEqual(response[-2]['rez'], None)
+        self.assertEqual(response[-2]['mp'], 1.2)
+        self.assertEqual(response[-2]['type'], "JPEG")
+
+    def test_order_by_indexes(self):
+        query = ("select 'JFIF:XResolution' as rez, 'Composite:Megapixels' as mp, 'File:FileType' as type "
+                 "From Database order by 1 desc")
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(response[0]['rez'], 100)
+        self.assertEqual(response[0]['mp'], 0.342)
+        self.assertEqual(response[0]['type'], "JPEG")
+
+        self.assertEqual(response[1]['rez'], 100)
+        self.assertEqual(response[1]['mp'], 2.5)
+        self.assertEqual(response[1]['type'], "JPEG")
+
+        self.assertEqual(response[-1]['rez'], None)
+        self.assertEqual(response[-1]['mp'], 0.262)
+        self.assertEqual(response[-1]['type'], "TIFF")
+
+        self.assertEqual(response[-2]['rez'], None)
+        self.assertEqual(response[-2]['mp'], 1.2)
+
+    def test_order_by_invalid_index(self):
+        query = ("select 'JFIF:XResolution' as rez, 'Composite:Megapixels' as mp, 'File:FileType' as type "
+                 "From Database order by 20 desc")
+        self.assertRaises(QueryException, mql.query_file, query, self.TEST_INPUT)
+
+    def test_order_by_missing_column(self):
+        query = ("select 'JFIF:XResolution' as rez, 'Composite:Megapixels' as mp, 'File:FileType' as type "
+                 "From Database order by foo desc")
+        self.assertRaises(QueryException, mql.query_file, query, self.TEST_INPUT)
+
+    def test_order_by_star(self):
+        query = ("select * "
+                 "From Database order by \"JFIF:XResolution\" desc")
+        response = mql.query_file(query, self.TEST_INPUT)
+        print(response)
+
 
 
 
