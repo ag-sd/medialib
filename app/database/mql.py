@@ -426,7 +426,7 @@ def _flatten(expression):
             case _:
                 return f"(  {_flatten(expression[0])}  {operator}  {_flatten(expression[2])}  )"
     elif isinstance(expression, dict):
-        return expression[_MQ_T_COL][0]
+        return f".\"{expression[_MQ_T_COL][0]}\""
     elif isinstance(expression, str):
         # Wrap strings in quotes
         if expression.startswith(".") or expression.startswith("db."):

@@ -26,7 +26,7 @@ class TestMQL(unittest.TestCase):
         self.assertTrue(len(response) == 0)
 
     def test_field_check(self):
-        query = "select * from Database where '.File:ImageHeight' > 2315"
+        query = "select * from Database where \"File:ImageHeight\" > 2315"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertTrue(len(response) == 3)
 
@@ -443,7 +443,10 @@ class TestMQL(unittest.TestCase):
                  "From Database order by \"JFIF:XResolution\" desc")
         response = mql.query_file(query, self.TEST_INPUT)
         print(response)
-
+        self.assertEqual(response[0]['JFIF:XResolution'], 100)
+        self.assertEqual(response[2]['JFIF:XResolution'], 72)
+        self.assertNotIn('JFIF:XResolution', response[-1])
+        self.assertNotIn('JFIF:XResolution', response[-2])
 
 
 
