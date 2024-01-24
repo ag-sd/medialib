@@ -224,6 +224,7 @@ def query_file(query: str, file: str):
 #     - ORDER BY
 #     - TIME OPERATIONS
 #     - UNION | INTERSECT | EXCEPT
+#     - COLUMN VALIDATION
 def _evaluate_query(query: str):
     tokenized_query = _parser.parseString(query, parseAll=True).asDict()
     # SELECT Clause
@@ -428,12 +429,10 @@ def _flatten(expression):
     elif isinstance(expression, dict):
         return f".\"{expression[_MQ_T_COL][0]}\""
     elif isinstance(expression, str):
-        # Wrap strings in quotes
-        if expression.startswith(".") or expression.startswith("db."):
-            return f'."{_compose_field_name(expression)}"'
         if expression in _MQ_LITERAL_KEYWORDS:
             return expression.lower()
-        return f'"{expression}"'
+        else:
+            return f"\"{expression}\""
     else:
         return expression
 
