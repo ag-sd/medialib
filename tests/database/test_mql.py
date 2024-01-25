@@ -1,4 +1,3 @@
-import json
 import unittest
 from pathlib import Path
 
@@ -27,58 +26,51 @@ class TestMQL(unittest.TestCase):
         self.assertTrue(len(response) == 0)
 
     def test_field_check(self):
-        query = "select * from Database where '.File:ImageHeight' > 2315"
+        query = "select * from Database where \"File:ImageHeight\" > 2315"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertTrue(len(response) == 3)
 
     def test_field_qualified_name_check(self):
-        query = "select * from Database where 'db.File:ImageHeight' > 2315"
+        query = 'select * from Database where "File:ImageHeight" > 2315'
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertTrue(len(response) == 3)
 
     def test_field_with_and(self):
-        query = "select * from Database where '.File:ImageHeight' == 256 and '.File:ImageWidth' == 256"
+        query = 'select * from Database where "File:ImageHeight" == 256 and "File:ImageWidth" == 256'
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertTrue(len(response) == 1)
 
     def test_field_with_or(self):
-        query = "select * from Database where '.File:ImageHeight' == 256 or '.File:ImageWidth' == 3024"
+        query = 'select * from Database where "File:ImageHeight" == 256 or "File:ImageWidth" == 3024'
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertTrue(len(response) == 2)
 
     def test_in_clause_nums(self):
-        query = "select * from Database where '.File:ImageHeight' in (256, 1500)"
+        query = "select * from Database where \"File:ImageHeight\" in (256, 1500)"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertTrue(len(response) == 3)
 
     def test_in_clause_expr(self):
-        query = "select * from Database where '.File:ImageHeight' in (16 * 16, 1600 - 100)"
+        query = "select * from Database where \"File:ImageHeight\" in (16 * 16, 1600 - 100)"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertTrue(len(response) == 3)
 
-    @unittest.skipIf(TEST_IMPLEMENTED_OPERATIONS_ONLY, "Search in columns not supported in this manner")
-    def test_in_clause_singular(self):
-        query = "select 'SourceFile' as file, 'File:FileType' as format " \
-                "from Database where 'JPEG' in '.File:FileType'"
-        response = mql.query_file(query, self.TEST_INPUT)
-        self.assertEqual(len(response), 3)
-
     def test_in_clause_strings(self):
-        query = "select 'SourceFile' from Database where '.System:FileSize' in ('139 kB', '179 kB')"
+        query = "select SourceFile from Database where \"System:FileSize\" in ('139 kB', '179 kB')"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 2)
 
     def test_not_in_clause_strings(self):
-        query = "select 'SourceFile' from Database where '.System:FileSize' not in ('139 kB', '179 kB')"
+        query = "select SourceFile from Database where \"System:FileSize\" not in ('139 kB', '179 kB')"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertTrue(len(response) == 13)
 
     def test_between_clause(self):
-        query = "select * from Database where '.File:ImageHeight' between 256, 1500"
+        query = "select * from Database where \"File:ImageHeight\" between 256, 1500"
         self.assertRaises(QueryException, mql.query_file, query, self.TEST_INPUT)
 
     def test_select_single_field_operation(self):
-        query = "select 'SourceFile' from Database"
+        query = "select \"SourceFile\" from Database"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 15)
         for ele in response:
@@ -117,7 +109,7 @@ class TestMQL(unittest.TestCase):
         """
         Unquoted fields are lower cased, so they may not be found in the database
         """
-        query = "select 'SourceFile' from Database"
+        query = "select SourceFile from Database"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 15)
 
@@ -125,8 +117,8 @@ class TestMQL(unittest.TestCase):
         """
         Unquoted aliases are lowercased
         """
-        query = "select 'SourceFile' as File, 'System:FileSize' as size, " \
-                "'File:ImageWidth' as width, 'File:ImageHeight' as height from Database"
+        query = "select SourceFile as File, \"System:FileSize\" as size, " \
+                "\"File:ImageWidth\" as width, \"File:ImageHeight\" as height from Database"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 15)
         for ele in response:
@@ -137,12 +129,12 @@ class TestMQL(unittest.TestCase):
             self.assertTrue("height" in ele)
 
     def test_field_quoted_alias(self):
-        query = "select 'SourceFile' as 'File', 'System:FileSize' as 'SizE', " \
-                "'File:ImageWidth' as width, 'File:ImageHeight' as height from Database"
+        query = "select SourceFile as 'File', \"System:FileSize\" as 'SizE', " \
+                "\"File:ImageWidth\" as width, \"File:ImageHeight\" as height from Database"
         self.assertRaises(QueryException, mql.query_file, query, self.TEST_INPUT)
 
     def test_regexp_match(self):
-        query = "Select 'SourceFile' as file from Database where '.SourceFile' regexp '.*lena.*'"
+        query = "Select \"SourceFile\" as file from Database where \"SourceFile\" regexp '.*lena.*'"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 9)
         for ele in response:
@@ -151,7 +143,7 @@ class TestMQL(unittest.TestCase):
             self.assertTrue("lena" in name or "Lena" in name)
 
     def test_regexp_not_match(self):
-        query = "Select 'SourceFile' as file from Database where '.SourceFile' not regexp '.*lena.*'"
+        query = "Select \"SourceFile\" as file from Database where \"SourceFile\" not regexp '.*lena.*'"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 6)
         for ele in response:
@@ -159,8 +151,8 @@ class TestMQL(unittest.TestCase):
             self.assertTrue("lena" not in name)
 
     def test_like_operation_ends_with(self):
-        query = "Select 'SourceFile' as file, 'File:FileType' as type " \
-                "from Database where '.File:FileType' like '%g'"
+        query = "Select SourceFile as file, \"File:FileType\" as type " \
+                "from Database where \"File:FileType\" like '%g'"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 10)
         for ele in response:
@@ -168,8 +160,8 @@ class TestMQL(unittest.TestCase):
             self.assertTrue("JPEG" == _type or "PNG" == _type)
 
     def test_like_operation_starts_with_and_ends_with(self):
-        query = "Select 'SourceFile' as file, 'File:FileType' as type " \
-                "from Database where '.File:FileType' like 'j%g'"
+        query = "Select SourceFile as file, \"File:FileType\" as type " \
+                "from Database where \"File:FileType\" like 'j%g'"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 8)
         for ele in response:
@@ -177,8 +169,8 @@ class TestMQL(unittest.TestCase):
             self.assertTrue("JPEG" == _type)
 
     def test_like_operation_contains(self):
-        query = "Select 'SourceFile' as file, 'File:FileType' as type " \
-                "from Database where '.File:FileType' like '%n%'"
+        query = "Select SourceFile as file, \"File:FileType\" as type " \
+                "from Database where \"File:FileType\" like '%n%'"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 2)
         for ele in response:
@@ -186,8 +178,8 @@ class TestMQL(unittest.TestCase):
             self.assertTrue("PNG" == _type)
 
     def test_like_operation_fixed_len(self):
-        query = "Select 'SourceFile' as file, 'File:FileType' as type " \
-                "from Database where '.File:FileType' like '___'"
+        query = "Select SourceFile as file, \"File:FileType\" as type " \
+                "from Database where \"File:FileType\" like '___'"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 4)
         for ele in response:
@@ -195,8 +187,8 @@ class TestMQL(unittest.TestCase):
             self.assertTrue("PNG" == _type or "GIF" == _type)
 
     def test_like_combination_with_positional(self):
-        query = "Select 'SourceFile' as file, 'File:FileType' as type " \
-                "from Database where '.File:FileType' like '%if_'"
+        query = "Select SourceFile as file, \"File:FileType\" as type " \
+                "from Database where \"File:FileType\" like '%if_'"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 3)
         for ele in response:
@@ -204,8 +196,8 @@ class TestMQL(unittest.TestCase):
             self.assertTrue("TIFF" == _type)
 
     def test_like_exact_match(self):
-        query = "Select 'SourceFile' as file, 'File:FileType' as type " \
-                "from Database where '.File:FileType' like 'GIF'"
+        query = "Select SourceFile as file, \"File:FileType\" as type " \
+                "from Database where \"File:FileType\" like 'GIF'"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 2)
         for ele in response:
@@ -213,8 +205,8 @@ class TestMQL(unittest.TestCase):
             self.assertTrue("GIF" == _type)
 
     def test_is_operator_basic(self):
-        query = "Select 'SourceFile' as file, 'File:FileType' as type " \
-                "from Database where '.File:FileType' is 'GIF'"
+        query = "Select SourceFile as file, \"File:FileType\" as type " \
+                "from Database where \"File:FileType\" is 'GIF'"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 2)
         for ele in response:
@@ -222,8 +214,8 @@ class TestMQL(unittest.TestCase):
             self.assertTrue("GIF" == _type)
 
     def test_is_operator_basic_not(self):
-        query = "Select 'SourceFile' as file, 'File:FileType' as type " \
-                "from Database where '.File:FileType' is not 'JPEG'"
+        query = "Select SourceFile as file, \"File:FileType\" as type " \
+                "from Database where \"File:FileType\" is not 'JPEG'"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 7)
         for ele in response:
@@ -231,70 +223,70 @@ class TestMQL(unittest.TestCase):
             self.assertTrue("JPEG" != _type)
 
     def test_is_null(self):
-        query = "Select 'SourceFile' as file, 'File:FileType' as type, " \
-                "'JFIF:ResolutionUnit' as jfif from Database where '.JFIF:ResolutionUnit' is null"
+        query = "Select SourceFile as file, \"File:FileType\" as type, " \
+                "\"JFIF:ResolutionUnit\" as jfif from Database where \"JFIF:ResolutionUnit\" is null"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 9)
         for ele in response:
             self.assertIsNone(ele["jfif"])
 
     def test_is_not_null(self):
-        query = "Select 'SourceFile' as file, 'File:FileType' as type, " \
-                "'JFIF:ResolutionUnit' as jfif from Database where '.JFIF:ResolutionUnit' is not null"
+        query = "Select SourceFile as file, \"File:FileType\" as type, " \
+                "\"JFIF:ResolutionUnit\" as jfif from Database where \"JFIF:ResolutionUnit\" is not null"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 6)
         for ele in response:
             self.assertIsNotNone(ele["jfif"])
 
     def test_is_true(self):
-        query = "Select 'SourceFile' as file, 'mature_content' as content " \
-                "from Database where '.mature_content' is true"
+        query = "Select SourceFile as file, mature_content as content " \
+                "from Database where \"mature_content\" is true"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 5)
         for ele in response:
             self.assertTrue(ele["content"])
 
     def test_is_not_true(self):
-        query = "Select 'SourceFile' as file, 'mature_content' as content " \
-                "from Database where '.mature_content' is not true"
+        query = "Select SourceFile as file, mature_content as content " \
+                "from Database where \"mature_content\" is not true"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 10)
         for ele in response:
             self.assertFalse(ele["content"])
 
     def test_is_false(self):
-        query = "Select 'SourceFile' as file, 'mature_content' as content " \
-                "from Database where '.mature_content' is false"
+        query = "Select SourceFile as file, mature_content as content " \
+                "from Database where \"mature_content\" is false"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 10)
         for ele in response:
             self.assertFalse(ele["content"])
 
     def test_is_not_false(self):
-        query = "Select 'SourceFile' as file, 'mature_content' as content " \
-                "from Database where '.mature_content' is not false"
+        query = "Select SourceFile as file, mature_content as content " \
+                "from Database where \"mature_content\" is not false"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 5)
         for ele in response:
             self.assertTrue(ele["content"])
 
     def test_between_numbers(self):
-        query = "Select 'SourceFile' as file, 'File:ImageWidth' as width " \
-                "from Database where '.File:ImageWidth' between 100+100 and 300*2"
+        query = 'Select SourceFile as file, "File:ImageWidth" as width ' \
+                'from Database where "File:ImageWidth" between 100+100 and 300*2'
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 3)
         for ele in response:
             self.assertTrue((100 + 100) <= ele["width"] <= (300 * 2))
 
     def test_between_invalid_syntax(self):
-        query = "Select 'SourceFile' as file, 'mature_content' as content " \
-                "from Database where '.File:ImageWidth' between 100+100 or 300*2"
+        query = 'Select SourceFile as file, mature_content as content ' \
+                'from Database where "File:ImageWidth" between 100+100 or 300*2'
 
         self.assertRaises(QueryException, mql.query_file, query, self.TEST_INPUT)
 
     def test_not_between_numbers(self):
-        query = "Select 'SourceFile' as file, 'File:ImageWidth' as width " \
-                "from Database where '.File:ImageWidth' not between 257 and 1000"
+        query = "Select SourceFile as file, \"File:ImageWidth\" as width " \
+                "from Database where \"File:ImageWidth\" not between 257 and 1000"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 11)
 
@@ -307,8 +299,8 @@ class TestMQL(unittest.TestCase):
         raise NotImplementedError
 
     def test_between_text_values(self):
-        query = "Select 'SourceFile' as file, 'File:FileType' as format " \
-                "from Database where '.File:FileType' between 'GIF' and 'PNG'"
+        query = 'Select SourceFile as file, "File:FileType" as format ' \
+                "from Database where \"File:FileType\" between 'GIF' and 'PNG'"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 12)
         for ele in response:
@@ -316,8 +308,8 @@ class TestMQL(unittest.TestCase):
             self.assertTrue("JPEG" in fmt or "GIF" in fmt or "PNG" in fmt)
 
     def test_not_between_text_values(self):
-        query = "Select 'SourceFile' as file, 'File:FileType' as format " \
-                "from Database where '.File:FileType' not between 'GIF' and 'PNG'"
+        query = "Select SourceFile as file, \"File:FileType\" as format " \
+                "from Database where \"File:FileType\" not between 'GIF' and 'PNG'"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 7)
         for ele in response:
@@ -325,33 +317,129 @@ class TestMQL(unittest.TestCase):
             self.assertTrue("TIFF" in fmt or "GIF" in fmt or "PNG" in fmt)
 
     def test_distinct(self):
-        query = "Select distinct 'File:FileType' as format from Database"
+        query = "Select distinct \"File:FileType\" as format from Database"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertEqual(len(response), 4)
 
     def test_query(self):
-        test = "SELECT 'SourceFile' as file where \"identifier with ""quotes"" " \
+        test = "SELECT SourceFile as file where \"identifier with ""quotes"" " \
                "and a trailing space \" IS NOT null -- COMMENT"
         # test = "select x.* from database"
         success, parsed = mql._parser.runTests(test)
         self.assertTrue(success, f"Failed for test {test}")
 
     def test_limit(self):
-        query = "select 'SourceFile' From Database limit 6"
+        query = "select SourceFile From Database limit 6"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertTrue(len(response) == 6)
 
     def test_order_by_multiple(self):
-        # cat /home/sheldon/Documents/dev/medialib/tests/resources/test_db_data.json | jq '[ limit( 600 ; .[]  | { "Size":.["System:FileSize"] } ) ] | sort_by(.Size)'
-        query = "select 'SourceFile', 'System:FileSize' as size From Database order by size, file"
+        query = ("select \"JFIF:XResolution\" as rez, \"Composite:Megapixels\" as mp, \"File:FileType\" as type "
+                 "From Database order by rez, 2")
         response = mql.query_file(query, self.TEST_INPUT)
-        print(json.dumps(response, indent=3))
+        self.assertEqual(response[0]['rez'], None)
+        self.assertEqual(response[0]['mp'], 0.198)
+        self.assertEqual(response[0]['type'], "PNG")
+
+        self.assertEqual(response[1]['rez'], None)
+        self.assertEqual(response[1]['mp'], 0.262)
+        self.assertEqual(response[1]['type'], "TIFF")
+
+        self.assertEqual(response[-1]['rez'], 100)
+        self.assertEqual(response[-1]['mp'], 2.5)
+        self.assertEqual(response[-1]['type'], "JPEG")
+
+        self.assertEqual(response[-2]['rez'], 100)
+        self.assertEqual(response[-2]['mp'], 0.342)
+        self.assertEqual(response[-2]['type'], "JPEG")
+
+        self.assertEqual(response[9]['rez'], 72)
+        self.assertEqual(response[9]['mp'], 0.066)
+        self.assertEqual(response[9]['type'], "JPEG")
 
     def test_order_by_multiple_mixed_order_keys(self):
-        pass
+        query = ("select \"JFIF:XResolution\" as rez, \"Composite:Megapixels\" as mp, \"File:FileType\" as type "
+                 "From Database order by rez, 2 desc")
+        self.assertRaises(QueryException, mql.query_file, query, self.TEST_INPUT)
 
     def test_order_by_single_order_key(self):
-        pass
+        query = ("select \"JFIF:XResolution\" as rez, \"Composite:Megapixels\" as mp, \"File:FileType\" as type "
+                 "From Database order by rez")
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(response[0]['rez'], None)
+        self.assertEqual(response[0]['mp'], 0.262)
+        self.assertEqual(response[0]['type'], "TIFF")
+
+        self.assertEqual(response[1]['rez'], None)
+        self.assertEqual(response[1]['mp'], 1.2)
+        self.assertEqual(response[1]['type'], "JPEG")
+
+        self.assertEqual(response[-1]['rez'], 100)
+        self.assertEqual(response[-1]['mp'], 0.342)
+        self.assertEqual(response[-1]['type'], "JPEG")
+
+        self.assertEqual(response[-2]['rez'], 100)
+        self.assertEqual(response[-2]['mp'], 2.5)
+        self.assertEqual(response[-2]['type'], "JPEG")
+
+    def test_order_by_single_order_key_desc(self):
+        query = ("select \"JFIF:XResolution\" as rez, \"Composite:Megapixels\" as mp, \"File:FileType\" as type "
+                 "From Database order by rez desc")
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(response[0]['rez'], 100)
+        self.assertEqual(response[0]['mp'], 0.342)
+        self.assertEqual(response[0]['type'], "JPEG")
+
+        self.assertEqual(response[1]['rez'], 100)
+        self.assertEqual(response[1]['mp'], 2.5)
+        self.assertEqual(response[1]['type'], "JPEG")
+
+        self.assertEqual(response[-1]['rez'], None)
+        self.assertEqual(response[-1]['mp'], 0.262)
+        self.assertEqual(response[-1]['type'], "TIFF")
+
+        self.assertEqual(response[-2]['rez'], None)
+        self.assertEqual(response[-2]['mp'], 1.2)
+        self.assertEqual(response[-2]['type'], "JPEG")
+
+    def test_order_by_indexes(self):
+        query = ("select \"JFIF:XResolution\" as rez, \"Composite:Megapixels\" as mp, \"File:FileType\" as type "
+                 "From Database order by 1 desc")
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(response[0]['rez'], 100)
+        self.assertEqual(response[0]['mp'], 0.342)
+        self.assertEqual(response[0]['type'], "JPEG")
+
+        self.assertEqual(response[1]['rez'], 100)
+        self.assertEqual(response[1]['mp'], 2.5)
+        self.assertEqual(response[1]['type'], "JPEG")
+
+        self.assertEqual(response[-1]['rez'], None)
+        self.assertEqual(response[-1]['mp'], 0.262)
+        self.assertEqual(response[-1]['type'], "TIFF")
+
+        self.assertEqual(response[-2]['rez'], None)
+        self.assertEqual(response[-2]['mp'], 1.2)
+
+    def test_order_by_invalid_index(self):
+        query = ("select \"JFIF:XResolution\" as rez, \"Composite:Megapixels\" as mp, \"File:FileType\" as type "
+                 "From Database order by 20 desc")
+        self.assertRaises(QueryException, mql.query_file, query, self.TEST_INPUT)
+
+    def test_order_by_missing_column(self):
+        query = ("select \"JFIF:XResolution\" as rez, \"Composite:Megapixels\" as mp, \"File:FileType\" as type "
+                 "From Database order by foo desc")
+        self.assertRaises(QueryException, mql.query_file, query, self.TEST_INPUT)
+
+    def test_order_by_star(self):
+        query = ("select * "
+                 "From Database order by \"JFIF:XResolution\" desc")
+        response = mql.query_file(query, self.TEST_INPUT)
+        print(response)
+        self.assertEqual(response[0]['JFIF:XResolution'], 100)
+        self.assertEqual(response[2]['JFIF:XResolution'], 72)
+        self.assertNotIn('JFIF:XResolution', response[-1])
+        self.assertNotIn('JFIF:XResolution', response[-2])
 
 
 
