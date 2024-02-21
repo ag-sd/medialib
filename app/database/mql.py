@@ -18,8 +18,9 @@ _MQ_T_ORDER_BY_TERMS = "ORDER_BY_TERMS"
 _MQ_T_ORDER_BY_DIRECTION = "direction"
 _MQ_T_ORDER_KEY = "ORDER_KEY"
 _MQ_T_HAVING_EXPRESSION = "HAVING_EXPR"
-_MQ_T_WHERE_EXPRESSION = "__WHERE_EXPR__"
+_MQ_T_WHERE_CLAUSE = "__WHERE_EXPR__"
 _MQ_T_SELECT_OPTS = "__SELECT_OPTS__"
+_MQ_T_SELECT_STATEMENTS = "__SELECT_STATEMENTS__"
 _MQ_T_COLS = "__COLUMNS__"
 _MQ_T_COL_ALIAS = "__ALIAS__"
 _MQ_T_COL_TABLE = "__COL_TABLE__"
@@ -27,11 +28,18 @@ _MQ_T_COL_DB = "__COL_DB__"
 _MQ_T_COL_TAB = "__COL_TAB__"
 _MQ_T_COL = "__COL__"
 
+_MQ_O_UNION = " + "
+_MQ_O_EXCEPT = " - "
+
 _MQ_K_OB_ASC = "ASC"
 _MQ_K_OB_DESC = "DESC"
+_MQ_K_UNION = "UNION"
+_MQ_K_ALL = "ALL"
+_MQ_K_EXCEPT = "EXCEPT"
+_MQ_K_OFFSET = "OFFSET"
 
-_MQ_SUPPORTED_KEYWORDS = f"ALL AND {_MQ_K_OB_ASC} {_MQ_K_OB_DESC} ON AS NOT SELECT DISTINCT FROM WHERE GROUP BY " \
-                         "HAVING ORDER LIMIT OFFSET OR ISNULL NOTNULL NULL IS BETWEEN ELSE " \
+_MQ_SUPPORTED_KEYWORDS = f"{_MQ_K_UNION} {_MQ_K_ALL} AND INTERSECT {_MQ_K_EXCEPT} {_MQ_K_OB_ASC} {_MQ_K_OB_DESC} ON AS NOT SELECT DISTINCT FROM WHERE GROUP BY " \
+                         f"HAVING ORDER LIMIT {_MQ_K_OFFSET} OR ISNULL NOTNULL NULL IS BETWEEN ELSE " \
                          "EXISTS IN LIKE REGEXP CURRENT_TIME CURRENT_DATE CURRENT_TIMESTAMP TRUE FALSE"
 _MQ_EMPTY_STRING = ""
 _MQ_REGEX_OPS = "ixn"
@@ -151,6 +159,8 @@ class _Grammar:
         ],
     )
 
+    compound_operator = UNION + Optional(ALL) | INTERSECT | EXCEPT
+
     ordering_term = Group(
         expr(_MQ_T_ORDER_KEY)
         + Optional(ASC | DESC)(_MQ_T_ORDER_BY_DIRECTION)
@@ -168,24 +178,24 @@ class _Grammar:
         | expr(_MQ_T_COL) + Optional(Optional(AS) + column_alias(_MQ_T_COL_ALIAS))
     )
 
-    select_core = (
-            SELECT
-            + Group(Optional(DISTINCT | ALL))(_MQ_T_SELECT_OPTS)
-            + Group(delimitedList(result_column))(_MQ_T_COLS)
-            + Optional(FROM + oneOf("Database"))
-            + Optional(WHERE + expr(_MQ_T_WHERE_EXPRESSION))
-            + Optional(
-        Optional(HAVING + expr(_MQ_T_HAVING_EXPRESSION))
-    )
+    select_core = Group(
+        SELECT
+        + Group(Optional(DISTINCT | ALL))(_MQ_T_SELECT_OPTS)
+        + Group(delimitedList(result_column))(_MQ_T_COLS)
+        + Optional(FROM + oneOf("Database"))
+        + Optional(WHERE + expr(_MQ_T_WHERE_CLAUSE))
+        + Optional(
+            Optional(HAVING + expr(_MQ_T_HAVING_EXPRESSION))
+        )
     )
 
     select_stmt << (
-            select_core
-            + ZeroOrMore(select_core)
+            Group(
+                select_core + ZeroOrMore(compound_operator + select_core)
+            )(_MQ_T_SELECT_STATEMENTS)  # <-- results name
             + Optional(ORDER + BY + Group(delimitedList(ordering_term))(_MQ_T_ORDER_BY_TERMS))
             + Optional(
-        LIMIT
-        + (Group(expr + OFFSET + expr) | Group(expr + COMMA + expr) | expr)(_MQ_T_LIMIT)
+        LIMIT + (Group(expr + OFFSET + expr) | Group(expr + COMMA + expr) | expr)(_MQ_T_LIMIT)
     )
     )
 
@@ -198,6 +208,9 @@ class QueryException(Exception):
 
 
 _parser = _Grammar.select_stmt
+
+Select = namedtuple('Select', 'select_stmt order_by_stmt')
+Column = namedtuple('Column', 'field alias')
 
 
 def query_data(query: str, input_data: str):
@@ -219,48 +232,127 @@ def query_file(query: str, file: str):
 
 
 # TODO:
+#     - DISTINCT
 #     - HAVING
-#     - OFFSET
-#     - ORDER BY
 #     - TIME OPERATIONS
-#     - UNION | INTERSECT | EXCEPT
+#     - EXCEPT
 #     - COLUMN VALIDATION
 def _evaluate_query(query: str):
-    tokenized_query = _parser.parseString(query, parseAll=True).asDict()
+    """
+    Evaluates the input query and determines how to best execute the query.
+    Args:
+        query: The Query to evaluate
+
+    Returns: A QueryExecutionPlan instructing the caller on how to proceed with execution
+    """
+    tokenized = _parser.parseString(query, parseAll=True).asDict()
+    parsed = []
+
+    order_by_terms = {}
+    order_by_exprs = set()
+    if _MQ_T_ORDER_BY_TERMS in tokenized:
+        order_by_terms = tokenized[_MQ_T_ORDER_BY_TERMS]
+
+    is_unique = False
+
+    for part in tokenized[_MQ_T_SELECT_STATEMENTS]:
+        if isinstance(part, dict):
+            # Select Statement
+            select = _to_jq(part, order_by_terms)
+            order_by_exprs.add(select.order_by_stmt)
+            parsed.append(select.select_stmt)
+        elif part == "UNION":
+            # Note: In a compound select, duplicate rows will only be filtered if the
+            # UNION is not followed by a UNION ALL
+            parsed.append(_MQ_O_UNION)
+            is_unique = True
+        elif part == "ALL":
+            # A union would have been encountered before the ALL so no need to add another
+            # + symbol
+            is_unique = False
+        elif part == "EXCEPT":
+            parsed.append(_MQ_O_EXCEPT)
+        elif part == "INTERSECT":
+            # https://stackoverflow.com/questions/53937411/what-is-the-format-in-jq-for-calling-a-custom-module
+            # https://jqlang.github.io/jq/manual/
+            # https://stackoverflow.com/questions/66342200/how-to-pass-parameters-in-jq-to-a-function-defined-in-the-jq-dotfile
+            # https://stackoverflow.com/questions/38364458/how-to-get-the-intersection-of-two-json-arrays-using-jq
+            # Use a dot file to define an intersection command, then import it into the query and call intersect
+            app.logger.warn("INTERSECT is recognized but not implemented")
+
+    select_chain = _MQ_EMPTY_STRING.join(parsed)
+
+    # Order By
+    if len(order_by_exprs) > 1:
+        raise QueryException("Inconsistent order by across compound selects")
+
+    query = f"{select_chain} {' | unique ' if is_unique else _MQ_EMPTY_STRING} {order_by_exprs.pop()}".strip()
+
+    # Limit
+    if _MQ_T_LIMIT in tokenized:
+        limits = _compose_limit_offset(tokenized[_MQ_T_LIMIT][0])
+        query = f"{query} | .{limits}"
+
+    return query
+
+
+def _to_jq(select_tokens: dict, order_by_terms: dict) -> Select:
     # SELECT Clause
-    select_expr = _choose_columns(tokenized_query[_MQ_T_COLS])
+    select_expr = _choose_columns(select_tokens[_MQ_T_COLS])
     if select_expr != _MQ_EMPTY_STRING:
         select_expr = f"| {{ {select_expr} }}"
+
+    # WHERE Clause
+    if _MQ_T_WHERE_CLAUSE in select_tokens:
+        where_expr = f" | select( {_flatten(select_tokens[_MQ_T_WHERE_CLAUSE])} )"
+    else:
+        where_expr = _MQ_EMPTY_STRING
+
     # SELECT Options
     opts_expr = _MQ_EMPTY_STRING
-    if _MQ_T_SELECT_OPTS in tokenized_query:
+    if _MQ_T_SELECT_OPTS in select_tokens:
         # One of the ALL or DISTINCT keywords may follow the SELECT keyword in a simple SELECT statement.
         # If the simple SELECT is a SELECT ALL, then the entire set of result rows are returned by the SELECT.
         # If neither ALL or DISTINCT are present, then the behavior is as if ALL were specified.
         # If the simple SELECT is a SELECT DISTINCT, then duplicate rows are removed from the set of result rows
         # before it is returned. For the purposes of detecting duplicate rows,
         # two NULL values are considered to be equal.
-        if "DISTINCT" in tokenized_query[_MQ_T_SELECT_OPTS]:
+        if "DISTINCT" in select_tokens[_MQ_T_SELECT_OPTS]:
             opts_expr = " | unique"
-        elif "ALL" in tokenized_query[_MQ_T_SELECT_OPTS]:
+        elif "ALL" in select_tokens[_MQ_T_SELECT_OPTS]:
             app.logger.debug("Ignore ALL keyword as this is default behavior of the query engine")
-    # WHERE Clause
-    if _MQ_T_WHERE_EXPRESSION in tokenized_query:
-        where_expr = f" | select( {_flatten(tokenized_query[_MQ_T_WHERE_EXPRESSION])} )"
+
+    if order_by_terms:
+        order_by_expr = _compose_order_by_terms(select_tokens[_MQ_T_COLS], order_by_terms)
     else:
-        where_expr = _MQ_EMPTY_STRING
+        order_by_expr = _MQ_EMPTY_STRING
 
-    # Order By
-    order_by_terms = _MQ_EMPTY_STRING
-    if _MQ_T_ORDER_BY_TERMS in tokenized_query:
-        order_by_terms = _compose_order_by_terms(tokenized_query[_MQ_T_COLS], tokenized_query[_MQ_T_ORDER_BY_TERMS])
+    return Select(select_stmt=f"[.[] {where_expr} {select_expr}] {opts_expr}".strip(), order_by_stmt=order_by_expr)
 
-    # Limit
-    if _MQ_T_LIMIT in tokenized_query:
-        return f"[ limit( {tokenized_query[_MQ_T_LIMIT][0]} ; .[] {where_expr} {select_expr} ) ] " \
-               f"{opts_expr} {order_by_terms}".strip()
 
-    return f"[.[] {where_expr} {select_expr}] {opts_expr} {order_by_terms}".strip()
+def _compose_limit_offset(limit: list) -> str:
+    """
+    Creates a pythonic array slice representation of a limit and offset.
+    Limit 10 === [0:10]
+    Limit 10, offset 2 === [2, 12]
+    etc.
+
+    https://stackoverflow.com/questions/56028679/how-to-filter-array-and-slice-results-with-jq
+    Args:
+        limit: The limit tokens
+
+    Returns: An array limit represented as a pythonic array slice
+    """
+    _slice = []
+    if isinstance(limit, int):
+        _slice = [0, limit]
+    elif len(limit) == 3 and _MQ_K_OFFSET in limit:
+        limit.remove(_MQ_K_OFFSET)
+        _slice = [limit[1], limit[0] + limit[1]]
+    else:
+        raise QueryException(f"Unparsable limit clause {limit}")
+
+    return f"[ {_slice[0]} : {_slice[1]} ]"
 
 
 def _choose_columns(col_list: list) -> str:
@@ -299,7 +391,6 @@ def _get_column_and_alias(column: dict) -> tuple:
     Returns: A named tuple Column = namedtuple('Column', 'field alias')
 
     """
-    Column = namedtuple('Column', 'field alias')
 
     node = column[_MQ_T_COL]
     if _MQ_T_COL in node:

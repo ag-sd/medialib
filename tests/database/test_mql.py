@@ -329,9 +329,17 @@ class TestMQL(unittest.TestCase):
         self.assertTrue(success, f"Failed for test {test}")
 
     def test_limit(self):
-        query = "select SourceFile From Database limit 6"
+        query = "select \"SourceFile\" From Database limit 6"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertTrue(len(response) == 6)
+
+    def test_limit_offset(self):
+        query = " Select \"mature_content\" as content " \
+                " from Database order by content limit 5 offset 6"
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 5)
+        self.assertEqual(response[4]['content'], True)
+
 
     def test_order_by_multiple(self):
         query = ("select \"JFIF:XResolution\" as rez, \"Composite:Megapixels\" as mp, \"File:FileType\" as type "
@@ -435,13 +443,60 @@ class TestMQL(unittest.TestCase):
         query = ("select * "
                  "From Database order by \"JFIF:XResolution\" desc")
         response = mql.query_file(query, self.TEST_INPUT)
-        print(response)
         self.assertEqual(response[0]['JFIF:XResolution'], 100)
         self.assertEqual(response[2]['JFIF:XResolution'], 72)
         self.assertNotIn('JFIF:XResolution', response[-1])
         self.assertNotIn('JFIF:XResolution', response[-2])
 
+    def test_complex_union_except(self):
+        query = " Select \"SourceFile\" as file, \"mature_content\" as content " \
+                " from Database where \"mature_content\" is true " \
+                " UNION " \
+                " Select \"SourceFile\" as file, \"mature_content\" as content " \
+                " from Database where \"mature_content\" is false " \
+                " EXCEPT " \
+                " Select \"SourceFile\" as file, \"mature_content\" as content " \
+                " from Database where \"mature_content\" is false "
 
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 5)
+        for ele in response:
+            self.assertTrue(ele["content"])
+
+    def test_union(self):
+        query = " Select \"SourceFile\" as file, \"mature_content\" as content " \
+                " from Database where \"mature_content\" is true " \
+                " UNION " \
+                " Select \"SourceFile\" as file, \"mature_content\" as content " \
+                " from Database where \"mature_content\" is true "
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 5)
+        for ele in response:
+            self.assertTrue(ele["content"])
+
+    def test_union_all(self):
+        query = " Select \"SourceFile\" as file, \"mature_content\" as content " \
+                " from Database where \"mature_content\" is true " \
+                " UNION ALL " \
+                " Select \"SourceFile\" as file, \"mature_content\" as content " \
+                " from Database where \"mature_content\" is true "
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 10)
+        for ele in response:
+            self.assertTrue(ele["content"])
+
+    @unittest.skipIf(TEST_IMPLEMENTED_OPERATIONS_ONLY, "Only testing working operations")
+    def test_intersect(self):
+        raise NotImplementedError
+
+    def test_compound_select_order_by(self):
+        query = " Select \"SourceFile\" as file, \"mature_content\" as content " \
+                " from Database " \
+                " UNION ALL " \
+                " Select \"SourceFile\" as file, \"mature_content\" as content " \
+                " from Database where \"mature_content\" is true order by content"
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 20)
 
     def test_run_all_parser_tests(self):
         tests = """\
@@ -477,6 +532,9 @@ class TestMQL(unittest.TestCase):
                 SELECT * where ff not like 'bob%'
                 SELECT * where ff not like 'bob%' limit 10 offset 5
                 SELECT * where foo like '%bob___'
+                SELECT * where 1=1 union select * where 1=2
+                SELECT * where 1=1 union all select * where 1=2
+                SELECT * where 1=1 intersect select * where 1=2
             """
         for test in tests.split('\n'):
             success, parsed = mql._parser.runTests(test)
