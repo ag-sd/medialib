@@ -34,10 +34,12 @@ _MQ_O_EXCEPT = " - "
 _MQ_K_OB_ASC = "ASC"
 _MQ_K_OB_DESC = "DESC"
 _MQ_K_UNION = "UNION"
+_MQ_K_ALL = "ALL"
 _MQ_K_EXCEPT = "EXCEPT"
+_MQ_K_OFFSET = "OFFSET"
 
-_MQ_SUPPORTED_KEYWORDS = f"{_MQ_K_UNION} ALL AND INTERSECT {_MQ_K_EXCEPT} {_MQ_K_OB_ASC} {_MQ_K_OB_DESC} ON AS NOT SELECT DISTINCT FROM WHERE GROUP BY " \
-                         "HAVING ORDER LIMIT OFFSET OR ISNULL NOTNULL NULL IS BETWEEN ELSE " \
+_MQ_SUPPORTED_KEYWORDS = f"{_MQ_K_UNION} {_MQ_K_ALL} AND INTERSECT {_MQ_K_EXCEPT} {_MQ_K_OB_ASC} {_MQ_K_OB_DESC} ON AS NOT SELECT DISTINCT FROM WHERE GROUP BY " \
+                         f"HAVING ORDER LIMIT {_MQ_K_OFFSET} OR ISNULL NOTNULL NULL IS BETWEEN ELSE " \
                          "EXISTS IN LIKE REGEXP CURRENT_TIME CURRENT_DATE CURRENT_TIMESTAMP TRUE FALSE"
 _MQ_EMPTY_STRING = ""
 _MQ_REGEX_OPS = "ixn"
@@ -288,34 +290,10 @@ def _evaluate_query(query: str):
 
     # Limit
     if _MQ_T_LIMIT in tokenized:
-        # https://stackoverflow.com/questions/56028679/how-to-filter-array-and-slice-results-with-jq
         limits = _compose_limit_offset(tokenized[_MQ_T_LIMIT][0])
         query = f"{query} | .{limits}"
 
     return query
-
-
-def _compose_limit_offset(limit: list) -> str:
-    """
-    Creates a pythonic array slice representation of a limit and offset.
-    Limit 10 === [0:10]
-    Limit 10, offset 2 === [2, 12]
-    etc.
-    Args:
-        limit: The limit tokens
-
-    Returns: An array limit represented as a pythonic array slice
-    """
-    _slice = []
-    if isinstance(limit, int):
-        _slice = [0, limit]
-    elif len(limit) == 3 and "OFFSET" in limit:
-        limit.remove("OFFSET")
-        _slice = [limit[1], limit[0] + limit[1]]
-    else:
-        raise QueryException(f"Unparsable limit clause {limit}")
-
-    return f"[ {_slice[0]} : {_slice[1]} ]"
 
 
 def _to_jq(select_tokens: dict, order_by_terms: dict) -> Select:
@@ -352,60 +330,29 @@ def _to_jq(select_tokens: dict, order_by_terms: dict) -> Select:
     return Select(select_stmt=f"[.[] {where_expr} {select_expr}] {opts_expr}".strip(), order_by_stmt=order_by_expr)
 
 
-# TODO:
-#     - HAVING
-#     - OFFSET
-#     - ORDER BY
-#     - TIME OPERATIONS
-#     - UNION | INTERSECT | EXCEPT
-#     - COLUMN VALIDATION
-def _evaluate_query_(query: str):
+def _compose_limit_offset(limit: list) -> str:
     """
-    Evaluates the input query and determines how to best execute the query.
-    If the query is a simple select, it is possible to transfer the entire query to JQ.
-    If the query is a compound select, part of the execution, specifically the limit and offset needs to be done
-    in memory. This may take a lot of memory for operations that fetch a lot of data from disk
+    Creates a pythonic array slice representation of a limit and offset.
+    Limit 10 === [0:10]
+    Limit 10, offset 2 === [2, 12]
+    etc.
+
+    https://stackoverflow.com/questions/56028679/how-to-filter-array-and-slice-results-with-jq
     Args:
-        query: The Query to evaluate
+        limit: The limit tokens
 
-    Returns: A QueryExecutionPlan instructing the caller on how to proceed with execution
-
+    Returns: An array limit represented as a pythonic array slice
     """
-    tokenized_query = _parser.parseString(query, parseAll=True).asDict()
-    # SELECT Clause
-    select_expr = _choose_columns(tokenized_query[_MQ_T_COLS])
-    if select_expr != _MQ_EMPTY_STRING:
-        select_expr = f"| {{ {select_expr} }}"
-    # SELECT Options
-    opts_expr = _MQ_EMPTY_STRING
-    if _MQ_T_SELECT_OPTS in tokenized_query:
-        # One of the ALL or DISTINCT keywords may follow the SELECT keyword in a simple SELECT statement.
-        # If the simple SELECT is a SELECT ALL, then the entire set of result rows are returned by the SELECT.
-        # If neither ALL or DISTINCT are present, then the behavior is as if ALL were specified.
-        # If the simple SELECT is a SELECT DISTINCT, then duplicate rows are removed from the set of result rows
-        # before it is returned. For the purposes of detecting duplicate rows,
-        # two NULL values are considered to be equal.
-        if "DISTINCT" in tokenized_query[_MQ_T_SELECT_OPTS]:
-            opts_expr = " | unique"
-        elif "ALL" in tokenized_query[_MQ_T_SELECT_OPTS]:
-            app.logger.debug("Ignore ALL keyword as this is default behavior of the query engine")
-    # WHERE Clause
-    if _MQ_T_WHERE_CLAUSE in tokenized_query:
-        where_expr = f" | select( {_flatten(tokenized_query[_MQ_T_WHERE_CLAUSE])} )"
+    _slice = []
+    if isinstance(limit, int):
+        _slice = [0, limit]
+    elif len(limit) == 3 and _MQ_K_OFFSET in limit:
+        limit.remove(_MQ_K_OFFSET)
+        _slice = [limit[1], limit[0] + limit[1]]
     else:
-        where_expr = _MQ_EMPTY_STRING
+        raise QueryException(f"Unparsable limit clause {limit}")
 
-    # Order By
-    order_by_terms = _MQ_EMPTY_STRING
-    if _MQ_T_ORDER_BY_TERMS in tokenized_query:
-        order_by_terms = _compose_order_by_terms(tokenized_query[_MQ_T_COLS], tokenized_query[_MQ_T_ORDER_BY_TERMS])
-
-    # Limit
-    if _MQ_T_LIMIT in tokenized_query:
-        return f"[ limit( {tokenized_query[_MQ_T_LIMIT][0]} ; .[] {where_expr} {select_expr} ) ] " \
-               f"{opts_expr} {order_by_terms}".strip()
-
-    return f"[.[] {where_expr} {select_expr}] {opts_expr} {order_by_terms}".strip()
+    return f"[ {_slice[0]} : {_slice[1]} ]"
 
 
 def _choose_columns(col_list: list) -> str:
