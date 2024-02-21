@@ -329,9 +329,17 @@ class TestMQL(unittest.TestCase):
         self.assertTrue(success, f"Failed for test {test}")
 
     def test_limit(self):
-        query = "select SourceFile From Database limit 6"
+        query = "select \"SourceFile\" From Database limit 6"
         response = mql.query_file(query, self.TEST_INPUT)
         self.assertTrue(len(response) == 6)
+
+    def test_limit_offset(self):
+        query = " Select \"mature_content\" as content " \
+                " from Database order by content limit 5 offset 6"
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 5)
+        self.assertEqual(response[4]['content'], True)
+
 
     def test_order_by_multiple(self):
         query = ("select \"JFIF:XResolution\" as rez, \"Composite:Megapixels\" as mp, \"File:FileType\" as type "
@@ -455,21 +463,40 @@ class TestMQL(unittest.TestCase):
         for ele in response:
             self.assertTrue(ele["content"])
 
+    def test_union(self):
+        query = " Select \"SourceFile\" as file, \"mature_content\" as content " \
+                " from Database where \"mature_content\" is true " \
+                " UNION " \
+                " Select \"SourceFile\" as file, \"mature_content\" as content " \
+                " from Database where \"mature_content\" is true "
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 5)
+        for ele in response:
+            self.assertTrue(ele["content"])
+
     def test_union_all(self):
-        pass
+        query = " Select \"SourceFile\" as file, \"mature_content\" as content " \
+                " from Database where \"mature_content\" is true " \
+                " UNION ALL " \
+                " Select \"SourceFile\" as file, \"mature_content\" as content " \
+                " from Database where \"mature_content\" is true "
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 10)
+        for ele in response:
+            self.assertTrue(ele["content"])
 
     @unittest.skipIf(TEST_IMPLEMENTED_OPERATIONS_ONLY, "Only testing working operations")
     def test_intersect(self):
         raise NotImplementedError
 
-    def test_compound_select_inconsistent_order_by(self):
-        pass
-
     def test_compound_select_order_by(self):
-        pass
-
-
-
+        query = " Select \"SourceFile\" as file, \"mature_content\" as content " \
+                " from Database " \
+                " UNION ALL " \
+                " Select \"SourceFile\" as file, \"mature_content\" as content " \
+                " from Database where \"mature_content\" is true order by content"
+        response = mql.query_file(query, self.TEST_INPUT)
+        self.assertEqual(len(response), 20)
 
     def test_run_all_parser_tests(self):
         tests = """\

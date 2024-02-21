@@ -232,11 +232,9 @@ def query_file(query: str, file: str):
 # TODO:
 #     - DISTINCT
 #     - HAVING
-#     - OFFSET
 #     - TIME OPERATIONS
 #     - EXCEPT
 #     - COLUMN VALIDATION
-#     - LIMIT
 def _evaluate_query(query: str):
     """
     Evaluates the input query and determines how to best execute the query.
@@ -253,6 +251,8 @@ def _evaluate_query(query: str):
     if _MQ_T_ORDER_BY_TERMS in tokenized:
         order_by_terms = tokenized[_MQ_T_ORDER_BY_TERMS]
 
+    is_unique = False
+
     for part in tokenized[_MQ_T_SELECT_STATEMENTS]:
         if isinstance(part, dict):
             # Select Statement
@@ -260,7 +260,14 @@ def _evaluate_query(query: str):
             order_by_exprs.add(select.order_by_stmt)
             parsed.append(select.select_stmt)
         elif part == "UNION":
+            # Note: In a compound select, duplicate rows will only be filtered if the
+            # UNION is not followed by a UNION ALL
             parsed.append(_MQ_O_UNION)
+            is_unique = True
+        elif part == "ALL":
+            # A union would have been encountered before the ALL so no need to add another
+            # + symbol
+            is_unique = False
         elif part == "EXCEPT":
             parsed.append(_MQ_O_EXCEPT)
         elif part == "INTERSECT":
@@ -277,7 +284,38 @@ def _evaluate_query(query: str):
     if len(order_by_exprs) > 1:
         raise QueryException("Inconsistent order by across compound selects")
 
-    return f"{select_chain} {order_by_exprs.pop()}".strip()
+    query = f"{select_chain} {' | unique ' if is_unique else _MQ_EMPTY_STRING} {order_by_exprs.pop()}".strip()
+
+    # Limit
+    if _MQ_T_LIMIT in tokenized:
+        # https://stackoverflow.com/questions/56028679/how-to-filter-array-and-slice-results-with-jq
+        limits = _compose_limit_offset(tokenized[_MQ_T_LIMIT][0])
+        query = f"{query} | .{limits}"
+
+    return query
+
+
+def _compose_limit_offset(limit: list) -> str:
+    """
+    Creates a pythonic array slice representation of a limit and offset.
+    Limit 10 === [0:10]
+    Limit 10, offset 2 === [2, 12]
+    etc.
+    Args:
+        limit: The limit tokens
+
+    Returns: An array limit represented as a pythonic array slice
+    """
+    _slice = []
+    if isinstance(limit, int):
+        _slice = [0, limit]
+    elif len(limit) == 3 and "OFFSET" in limit:
+        limit.remove("OFFSET")
+        _slice = [limit[1], limit[0] + limit[1]]
+    else:
+        raise QueryException(f"Unparsable limit clause {limit}")
+
+    return f"[ {_slice[0]} : {_slice[1]} ]"
 
 
 def _to_jq(select_tokens: dict, order_by_terms: dict) -> Select:
