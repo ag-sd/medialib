@@ -1,17 +1,18 @@
-import json
+import shutil
 import shutil
 import subprocess
 from enum import Enum, StrEnum
 from pathlib import Path
 
 import app
+from app.database import props
+
 
 # https://exiftool.org/exiftool_pod.html#Input-output-text-formatting
-EXIFTOOL_APP = "exiftool"
 
 
 def test_exiftool():
-    exiftool = shutil.which(EXIFTOOL_APP)
+    exiftool = shutil.which(props.EXIFTOOL_APP)
     if exiftool is None:
         raise RuntimeError("Exiftool was not found on this system. "
                            "You should install the tool from here: https://exiftool.org/")
@@ -19,7 +20,7 @@ def test_exiftool():
 
 # Get supported formats
 test_exiftool()
-listf_proc = subprocess.run([EXIFTOOL_APP, "-listf"], capture_output=True, text=True)
+listf_proc = subprocess.run([props.EXIFTOOL_APP, "-listf"], capture_output=True, text=True)
 listf_proc.check_returncode()
 SUPPORTED_FORMATS = listf_proc.stdout.split(":")[1].replace("\n", '').replace("  ", ' ').strip().upper()
 
@@ -35,6 +36,7 @@ def is_supported(file: str) -> bool:
 
 
 class ExifInfoFormat(Enum):
+    CSV = "csv", ["-csv", "-G1", "-r", f"-csvDelim {props.EXIFTOOL_CSV_DELIMITER}"]
     JSON = "json", ["-j", "-G1", "-r"]
     XML = "xml", ["-X", "-g", "-struct", "-r"]
     HTML = "html", ["-h", "-g", "-struct", "-r"]
@@ -97,7 +99,7 @@ class ExifInfo:
                 if self._save_file is not None and self._data is None:
                     # Data has to be loaded into memory from disk
                     app.logger.debug(f"Loading data from file {self._save_file}")
-                    self._data = json.loads(Path(self._save_file).read_text(encoding=self.DATA_ENCODING))
+                    self._data = Path(self._save_file).read_text(encoding=self.DATA_ENCODING)
                 return self._data
             case ExifInfoStatus.INITIALIZED:
                 # First time data fetch
@@ -124,7 +126,7 @@ class ExifInfo:
             self._setup_file_process(command=cmd, output_file=output_file)
         else:
             proc = subprocess.run(cmd, capture_output=True, text=True)
-            self._data = json.loads(proc.stdout)
+            self._data = proc.stdout
 
         app.logger.debug(f"Exiftool command completed.")
         self._status = ExifInfoStatus.READY
@@ -143,6 +145,9 @@ class ExifInfo:
         app.logger.debug(f"Writing output to file {output_file}")
         with output_file_obj.open("w", encoding=ExifInfo.DATA_ENCODING) as f_out:
             proc = subprocess.run(command, stdout=f_out, text=True)
+            if proc.stdout == "":
+                raise ValueError("No media was found. Please ensure media that is in the following "
+                                 f"supported formats is present in the search location.\n{SUPPORTED_FORMATS}")
         return proc
 
     @staticmethod
@@ -155,7 +160,7 @@ class ExifInfo:
         """
         # TODO: Test
         # Create the command
-        cmd = [EXIFTOOL_APP, file]
+        cmd = [props.EXIFTOOL_APP, file]
         # Format
         cmd.extend(_format.args)
 
@@ -163,13 +168,8 @@ class ExifInfo:
 
     @staticmethod
     def get_tags(json_data):
-        all_tags = []
-        for entry in json_data:
-            all_tags.extend(list(entry.keys()))
-        return list(dict.fromkeys(all_tags))
-
-
-if __name__ == '__main__':
-    print(SUPPORTED_FORMATS)
-    print(" *.".join(SUPPORTED_FORMATS.split(" ")))
-    print(f"ExifTool Supported Files (*.{' *.'.join(SUPPORTED_FORMATS.split(' '))})")
+        # all_tags = []
+        # for entry in json_data:
+        #     all_tags.extend(list(entry.keys()))
+        # return list(dict.fromkeys(all_tags))
+        return []

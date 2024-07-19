@@ -2,7 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.database.ds import Database, Properties, Props
+from app.database import props
+from app.database.ds import Database, Properties
 
 
 class TestProperties(unittest.TestCase):
@@ -52,13 +53,13 @@ class TestProperties(unittest.TestCase):
             p_db = Properties.as_dictionary(db_path)
 
             self.assertEqual(p_db, {
-                Props.DB_NAME: db.name,
-                Props.DB_SAVE_PATH: db.save_path,
-                Props.DB_PATHS: db.paths,
-                Props.DB_TYPE: db.type,
-                Props.DB_CREATED: db.created,
-                Props.DB_UPDATED: db.updated,
-                Props.DB_TAGS: db.tags
+                props.DB_NAME: db.name,
+                props.DB_SAVE_PATH: db.save_path,
+                props.DB_PATHS: db.paths,
+                props.DB_TYPE: db.type,
+                props.DB_CREATED: db.created,
+                props.DB_UPDATED: db.updated,
+                props.DB_TAGS: db.tags
             })
 
     @staticmethod

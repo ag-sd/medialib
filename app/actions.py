@@ -7,7 +7,8 @@ from PyQt6.QtWidgets import QMenuBar, QMenu
 
 import app
 from app import views
-from app.database.ds import DBType, Database
+from app.database.ds import Database
+from app.database.props import DBType
 from app.views import ViewType
 
 

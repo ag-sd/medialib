@@ -1,31 +1,23 @@
 import configparser
 import datetime
 import json
-from enum import StrEnum
 from pathlib import Path
 
 import app
+from app.database import indexer, props
 from app.database.exifinfo import ExifInfo
+from app.database.props import DBType
 from app.views import ViewType
 
 
-class DBType(StrEnum):
-    IN_MEMORY = "in-memory"
-    ON_DISK = "on-disk"
+class DatabaseNotFoundException(Exception):
+    def __init__(self):
+        super().__init__("This database was not found!")
 
 
-class Props(StrEnum):
-    DB_SAVE_PATH = "save_path"
-    DB_PATHS = "paths"
-    DB_TYPE = "db_type"
-    DB_CREATED = "created"
-    DB_UPDATED = "updated"
-    DB_TAGS = "tags"
-    DB_NAME = "db_name"
-    V_VERSION = "version"
-
-
-DEFAULT_DB_NAME = "default-db"
+class CorruptedDatabaseException(Exception):
+    def __init__(self):
+        super().__init__("This database is corrupt and cannot be opened. See logs for more details")
 
 
 class Database:
@@ -56,6 +48,7 @@ class Database:
         self._path_cache = {}
         self._tags = tags
         self._validate_database(self)
+        self._is_modified = False
 
     @property
     def type(self):
@@ -85,33 +78,55 @@ class Database:
     def tags(self):
         return self._tags
 
-    def data(self, path: str, view: ViewType = ViewType.JSON):
+    @property
+    def is_modified(self):
+        return self._is_modified
+
+    def clear_cache(self):
+        app.logger.debug("Clearing Cache...")
+        self._path_cache = {}
+
+    def data(self, path: str, refresh = False):
         """
-        Checks if the path is in cache, if present, returns its data. if missing, and this is a in memory database,
+        Checks if the path is in cache, if present, returns its data. if missing, and this is an in memory database,
         extracts the exif info and returns it. If it's not in-memory database, returns the data associated with this
         path from the disk
-        :param path: The path to get data for
-        :param view: The view to return
-        :return: The data to represent this path
-        :raises: ValueError if path is not present in database
-        :raises: ValueError if view is not supported for database
+        Args:
+            path: The path to get data for
+            refresh: Whether to force a refresh for an on-disk database
+
+        Returns:
+            The data to represent this path
+
+        Raises:
+            ValueError if path is not present in database
+            ValueError if view is not supported for database
+
         """
         if path not in self._paths:
             raise ValueError(f"{path} was not found in this database")
 
-        key = self._create_path_key(path, view)
-        if key not in self._path_cache:
+        key = self._create_path_key(path)
+        if (key not in self._path_cache) or refresh is True:
             if self.type == DBType.IN_MEMORY:
-                app.logger.debug(f"Fetching data from exiftool for path {key}")
-                info = ExifInfo(path, view.format)
-                self._path_cache[key] = info.data
-                self._tags = list(dict.fromkeys(self._tags + info.tags))
+                data = self._get_exif_data(path, key)
             else:
                 # Fetch data from disk, add to cache and return it
-                app.logger.debug(f"Fetching data from disk for path {key}")
-                out_file = Path(self.save_path) / key
-                self._path_cache[key] = json.loads(out_file.read_text(encoding=ExifInfo.DATA_ENCODING))
-                self._tags = list(dict.fromkeys(self._tags + ExifInfo.get_tags(self._path_cache[key])))
+                # If this path is not present in the db, it's a new path, so add it to the database and
+                # Return its content
+                cache_file = Path(self.save_path) / key
+                if not cache_file.exists() or (cache_file.exists() and refresh is True):
+                    if not cache_file.exists():
+                        app.logger.warning(f"{path} was not found in this database! Will fetch it now...")
+                    app.logger.debug(f"Fetching contents of {path} to {cache_file}")
+                    data = self._get_exif_data(path, key, save_file=cache_file)
+                else:
+                    app.logger.debug(f"Fetching data from disk for path {key}")
+                    data = cache_file.read_text(encoding=ExifInfo.DATA_ENCODING)
+                if data == "":
+                    app.logger.warning(f"{key} has no exif data.")
+                    data = "[]"
+            self._path_cache[key] = json.loads(data)
 
         app.logger.debug(f"Returning exif data for '{key}' from cache")
         return self._path_cache[key]
@@ -122,12 +137,16 @@ class Database:
         :param paths: The paths to add
         """
         self._paths.extend(path for path in paths if path not in self._paths)
+        self._is_modified = True
 
-    def save(self, save_path: str, db_type: DBType = DBType.ON_DISK):
+    def save(self, save_path: str = None, db_type: DBType = DBType.ON_DISK):
         """
         Saves this database to the disk based on its configuration
         """
         # Save path must exist
+        if save_path is None:
+            save_path = self.save_path
+
         if not save_path:
             raise ValueError("Database is missing a valid save path")
         # Save the save path
@@ -146,30 +165,35 @@ class Database:
                 raise ValueError(f"Path '{path}' is is not a valid location")
 
         app.logger.debug(f"Starting to save database {self}")
+        # Blow the cache to force subsequent reloads from disk
+        self.clear_cache()
         # Iterate through each path in the database and write its metadata to disk
         for path in self.paths:
-            out_file = Path(self.save_path) / self._create_path_key(path, ViewType.JSON)
-            app.logger.debug(f"Writing contents of {path} to {out_file}")
-            info = ExifInfo(path, ViewType.JSON.format, save_file=str(out_file))
-            _ = info.data
-
-        # Blow the cache to force subsequent reloads from disk
-        self._path_cache = {}
+            self.data(path, refresh=True)
         # Set DB Type
         self._type = db_type
         # Write Metadata to the database
+        app.logger.info("Writing Metadata...")
         Properties.write(self)
+        # Index the Database
+        app.logger.info("Indexing database...")
+        if not indexer.create_index(self.save_path, vt.format):
+            app.logger.exception("Unable to index database. It cannot be searched!")
+            raise ValueError("Unable to index this database. Please see logs for more details")
+        app.logger.info("Done..")
+        self._is_modified = False
 
     def reload(self):
         if self.type == DBType.ON_DISK:
             r_db = Properties.as_dictionary(self.save_path)
-            self._database_name = r_db[Props.DB_NAME]
-            self._save_path = r_db[Props.DB_SAVE_PATH]
-            self._paths = r_db[Props.DB_PATHS]
-            self._type = r_db[Props.DB_TYPE]
-            self._created = r_db[Props.DB_CREATED]
-            self._updated = r_db[Props.DB_UPDATED]
-            self._tags = r_db[Props.DB_TAGS]
+            self._database_name = r_db[props.DB_NAME]
+            self._save_path = r_db[props.DB_SAVE_PATH]
+            self._paths = r_db[props.DB_PATHS]
+            self._type = r_db[props.DB_TYPE]
+            self._created = r_db[props.DB_CREATED]
+            self._updated = r_db[props.DB_UPDATED]
+            self._tags = r_db[props.DB_TAGS]
+            self._is_modified = False
         else:
             app.logger.error("Unable to reload an in-memory database!")
 
@@ -184,15 +208,20 @@ class Database:
             raise ValueError("Database must have at least one path")
 
     @staticmethod
-    def _create_path_key(path: str, view: ViewType) -> str:
+    def _get_exif_data(path: str, key: str, save_file=None):
+        app.logger.debug(f"Fetching data from exiftool for path {key}")
+        path_info = ExifInfo(path, save_file=save_file)
+        return path_info.data
+
+    @staticmethod
+    def _create_path_key(path: str) -> str:
         """
         Creates a key that uniquely identifies this path in the database cache. Cache could be in memory or on disk
         :param path: The path to create the key for
-        :param view: The view for this path
         :return: A string of the key that uniquely identifies this path in the database/cache
         """
         path_parts = Path(path).parts
-        key = f"{'__'.join(path_parts[1:])}.{view.format.name.lower()}"
+        key = f"{'__'.join(path_parts[1:])}.{ViewType.JSON.name.lower()}"
         return key
 
     @classmethod
@@ -203,7 +232,7 @@ class Database:
         :param save_path: The path this db will be eventually saved to (optional)
         :return: A Database object
         """
-        return cls(DBType.IN_MEMORY, DEFAULT_DB_NAME, paths, save_path=save_path,
+        return cls(DBType.IN_MEMORY, props.DB_DEFAULT_NAME, paths, save_path=save_path,
                    created=str(datetime.datetime.now()), updated=str(datetime.datetime.now()))
 
     @classmethod
@@ -213,13 +242,14 @@ class Database:
         :param database_path: The path to the database
         :return: A Database object
         """
+        db_path = Path(database_path)
+        if not db_path.exists():
+            raise DatabaseNotFoundException
+
         return cls(**Properties.as_dictionary(database_path))
 
 
 class Properties:
-    S_DATABASE = "database"
-    S_VERSION = "version"
-    PROPERTIES_FILE = "database"
 
     @staticmethod
     def as_database(database_path: str) -> Database:
@@ -227,19 +257,22 @@ class Properties:
         Get the database details from the property file
         :return: The database information as a db object
         """
+        config_file = Properties._get_config_file(database_path)
+        if not Path(config_file).exists():
+            raise CorruptedDatabaseException
         config = configparser.ConfigParser()
         config.read(Properties._get_config_file(database_path))
         Properties._test_version(config)
 
-        db = config[Properties.S_DATABASE]
+        db = config[props.S_DATABASE]
         return Database(
-            db_name=db[Props.DB_NAME],
+            db_name=db[props.DB_NAME],
             save_path=str(database_path),
-            paths=json.loads(db[Props.DB_PATHS]),
-            db_type=DBType[db[Props.DB_TYPE]],
-            created=db[Props.DB_CREATED] if Props.DB_CREATED in db else None,
-            updated=db[Props.DB_UPDATED] if Props.DB_UPDATED in db else None,
-            tags=json.loads(db[Props.DB_TAGS])
+            paths=json.loads(db[props.DB_PATHS]),
+            db_type=DBType[db[props.DB_TYPE]],
+            created=db[props.DB_CREATED] if props.DB_CREATED in db else None,
+            updated=db[props.DB_UPDATED] if props.DB_UPDATED in db else None,
+            tags=json.loads(db[props.DB_TAGS])
         )
 
     @staticmethod
@@ -252,15 +285,15 @@ class Properties:
         config.read(Properties._get_config_file(database_path))
         Properties._test_version(config)
 
-        db = config[Properties.S_DATABASE]
+        db = config[props.S_DATABASE]
         return {
-            Props.DB_NAME: db[Props.DB_NAME],
-            Props.DB_SAVE_PATH: str(database_path),
-            Props.DB_PATHS: json.loads(db[Props.DB_PATHS]),
-            Props.DB_TYPE: DBType[db[Props.DB_TYPE]],
-            Props.DB_CREATED: db[Props.DB_CREATED] if Props.DB_CREATED in db else None,
-            Props.DB_UPDATED: db[Props.DB_UPDATED] if Props.DB_UPDATED in db else None,
-            Props.DB_TAGS: json.loads(db[Props.DB_TAGS])
+            props.DB_NAME: db[props.DB_NAME],
+            props.DB_SAVE_PATH: str(database_path),
+            props.DB_PATHS: json.loads(db[props.DB_PATHS]),
+            props.DB_TYPE: DBType[db[props.DB_TYPE]],
+            props.DB_CREATED: db[props.DB_CREATED] if props.DB_CREATED in db else None,
+            props.DB_UPDATED: db[props.DB_UPDATED] if props.DB_UPDATED in db else None,
+            props.DB_TAGS: json.loads(db[props.DB_TAGS])
         }
 
     @staticmethod
@@ -281,29 +314,30 @@ class Properties:
 
     @staticmethod
     def _write_version(config: configparser.ConfigParser, version: str):
-        config[Properties.S_VERSION] = {
-            Props.V_VERSION: version
+        config[props.S_VERSION] = {
+            props.V_VERSION: version
         }
 
     @staticmethod
     def _write_database(config: configparser.ConfigParser, database: Database):
-        config[Properties.S_DATABASE] = {
-            Props.DB_NAME: database.name,
-            Props.DB_SAVE_PATH: database.save_path,
-            Props.DB_PATHS: json.dumps(database.paths),
-            Props.DB_TYPE: database.type.name,
-            Props.DB_CREATED: database.created,
-            Props.DB_UPDATED: database.updated,
-            Props.DB_TAGS: json.dumps(database.tags)
+        config[props.S_DATABASE] = {
+            props.DB_NAME: database.name,
+            props.DB_SAVE_PATH: database.save_path,
+            props.DB_PATHS: json.dumps(database.paths),
+            props.DB_TYPE: database.type.name,
+            props.DB_CREATED: database.created,
+            props.DB_UPDATED: database.updated,
+            props.DB_TAGS: json.dumps(database.tags)
         }
 
     @staticmethod
     def _test_version(parser: configparser.ConfigParser) -> bool:
-        if Properties.S_VERSION in parser:
-            file_version = parser[Properties.S_VERSION]
+        if props.S_VERSION in parser:
+            file_version = parser[props.S_VERSION]
             app.logger.warning(f"Version test for {file_version} skipped!")
         return True
 
     @staticmethod
     def _get_config_file(db_path: str) -> str:
-        return str(Path(db_path) / f"{Properties.PROPERTIES_FILE}.ini")
+        config_file = Path(db_path) / f"{props.PROPERTIES_FILE}.ini"
+        return str(config_file)

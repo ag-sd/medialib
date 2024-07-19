@@ -12,7 +12,7 @@ class TestExifInfo(unittest.TestCase):
         tmp = Path(tempfile.NamedTemporaryFile(suffix='.jpeg').name)
         tmp.touch()
         test_info = ExifInfo(file=str(tmp), fmt=ExifInfoFormat.JSON)
-        js = test_info.data[0]
+        js = json.loads(test_info.data)[0]
         self.assertEqual(js['SourceFile'], str(tmp))
         self.assertEqual(js['ExifTool:Error'], "File is empty")
 
@@ -21,7 +21,7 @@ class TestExifInfo(unittest.TestCase):
         tmp.touch()
         output = tempfile.NamedTemporaryFile(suffix='.output').name
         test_info = ExifInfo(file=str(tmp), fmt=ExifInfoFormat.JSON, save_file=str(output))
-        js = test_info.data[0]
+        js = json.loads(test_info.data)[0]
         self.assertEqual(js['SourceFile'], str(tmp))
         self.assertEqual(js['ExifTool:Error'], "File is empty")
 
@@ -57,22 +57,4 @@ class TestExifInfo(unittest.TestCase):
             self.fail("This call should fail")
         except ValueError as v:
             self.assertTrue(str(v).startswith(f"Input {str(tmp)} is not in the list of supported formats."))
-
-    def test_tags_lazy_get(self):
-        tmp = Path(tempfile.NamedTemporaryFile(suffix='.jpeg').name)
-        tmp.touch()
-        test_info = ExifInfo(file=str(tmp), fmt=ExifInfoFormat.JSON)
-        self.assertIsNone(test_info._tags)
-        self.assertEqual(test_info.tags,
-                         ['SourceFile',
-                          'ExifTool:ExifToolVersion',
-                          'ExifTool:Error',
-                          'System:FileName',
-                          'System:Directory',
-                          'System:FileSize',
-                          'System:FileModifyDate',
-                          'System:FileAccessDate',
-                          'System:FileInodeChangeDate',
-                          'System:FilePermissions']
-                         )
 

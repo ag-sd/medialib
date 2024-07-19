@@ -21,5 +21,7 @@ pip install pyqt6
 # Install dependencies
 echo "Install dependency : pyparsing"
 pip install pyparsing
+echo "Installing dependency: duckdb"
+pip install duckdb
 # Intstall testing tools
 pip install coverage

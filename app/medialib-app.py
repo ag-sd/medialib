@@ -1,20 +1,22 @@
 import argparse
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QUrl, Qt
+from PyQt6.QtCore import QUrl, Qt, QCoreApplication
 from PyQt6.QtGui import QDesktopServices, QIcon
-from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, QLabel, QMessageBox, QDialog, QFileDialog
+from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, QLabel, QMessageBox, QFileDialog, \
+    QProgressBar
 
 import app
 import apputils
 from app import appsettings
 from app.actions import AppMenuBar, MediaLibAction, DBAction
 from app.database import exifinfo
-from app.database.ds import Database
+from app.database.ds import Database, DatabaseNotFoundException, CorruptedDatabaseException
 from app.views import ViewType, TableView, ModelData
-from database.dbwidgets import DatabaseSearch, DatabasePropertyDialog
+from database.dbwidgets import DatabaseSearch
 
 
 class MediaLibApp(QMainWindow):
@@ -88,12 +90,25 @@ class MediaLibApp(QMainWindow):
         if self.database is not None:
             self.reload_database()
 
+    def closeEvent(self, event):
+        if self.database and self.database.is_modified:
+            save_confirm = QMessageBox.question(self, f"Quit {app.__NAME__}",
+                                                f"<p><b>The Database has changed</b></p>"
+                                                f"Save changes to Database {self.database.name} before closing?")
+            if save_confirm == QMessageBox.StandardButton.Yes:
+                if self.database.save_path is not None:
+                    self.database.save()
+                else:
+                    self._db_action_event(DBAction.SAVE_AS)
+        super().closeEvent(event)
+
     def reload_database(self):
         app.logger.debug("Load database and present data ...")
         # Update Menubar
         self.menubar.show_database(self.database)
         # Update display
         self.current_view_db_name.setText(self.database.name)
+        self.setWindowTitle(f"{self.database.name} : {app.__APP_NAME__}")
         self._paths_changed(self.database.paths)
 
     def _action_event(self, event: MediaLibAction):
@@ -145,23 +160,22 @@ class MediaLibApp(QMainWindow):
                 appsettings.set_bookmarks(bookmarks)
                 self.menubar.update_bookmarks(bookmarks)
 
-            case DBAction.SAVE | DBAction.SAVE_AS:
+            case DBAction.SAVE:
+                if self.database.save_path is None:
+                    app.logger.warning("Unable to save this database as save path is not provided. Requesting one now")
+                    self._db_action_event(DBAction.SAVE_AS)
+                else:
+                    self._do_work_in_thread(self.database.save, title="Saving database please wait...")
+
+            case DBAction.SAVE_AS:
                 # First get save location
                 save_location = QFileDialog.getExistingDirectory(self, caption=db_action,
                                                                  directory=str(appsettings.get_config_dir()))
                 # Then configure the database
                 if save_location != "":
                     app.logger.debug(f"DB will be saved to {save_location}")
-                    db_props = DatabasePropertyDialog()
-                    db_props.set_database(self.database)
-                    response_code = db_props.exec()
-                    if response_code == QDialog.DialogCode.Accepted:
-                        app.logger.debug("User triggered a save")
-                        # Finally, save it
-                        self.database.save(save_location)
-                        app.logger.info(f"Complete")
-                    else:
-                        app.logger.debug("User canceled path selection action")
+                    self._do_work_in_thread(self.database.save, kwargs={"save_path": save_location},
+                                            title="Saving database please wait...")
                 else:
                     app.logger.debug("User canceled save action")
 
@@ -173,6 +187,19 @@ class MediaLibApp(QMainWindow):
                 if open_location != "":
                     self._open_database(open_location)
 
+            case DBAction.RESET:
+                self.reload_database()
+
+            case DBAction.REFRESH:
+                def refresh_database():
+                    self.database.clear_cache()
+                    for path in self.database.paths:
+                        self.database.data(path, refresh=True)
+                self._do_work_in_thread(refresh_database, kwargs={}, title=f"Refreshing database...")
+                self.reload_database()
+            case _:
+                app.logger.warning(f"Not Implemented: {db_action}")
+
     def _open_database(self, db_path: str):
         try:
             self.database = Database.open_db(db_path)
@@ -182,17 +209,18 @@ class MediaLibApp(QMainWindow):
             appsettings.set_recently_opened_databases(recents)
             self.menubar.update_recents(recents)
 
-        except Exception as exception:
-            apputils.show_exception(self, exception)
+        except (DatabaseNotFoundException, CorruptedDatabaseException) as e:
+            apputils.show_exception(self, e)
 
     def _paths_changed(self, _paths):
         try:
             app.logger.debug(f"Selection changed to {_paths}")
             model_data = []
             for path in _paths:
-                model_data.append(ModelData(
-                    json=self.database.data(path=str(path), view=self.current_view_type),
-                    path=path))
+                self._do_work_in_thread(self.database.data, {"path": str(path)})
+                # Data is added to cache, so pick it up from cache
+                data = ModelData(json=self.database.data(path=str(path)), path=path)
+                model_data.append(data)
             self._display_model_data(model_data)
         except Exception as exception:
             apputils.show_exception(self, exception)
@@ -220,6 +248,27 @@ class MediaLibApp(QMainWindow):
         exiftool_file_filter = f"ExifTool Supported Files (*.{' *.'.join(exifinfo.SUPPORTED_FORMATS.split(' '))})"
         return apputils.get_new_paths(parent=self, is_dir=is_dir, file_filter=exiftool_file_filter)
 
+    def _do_work_in_thread(self, work_func, kwargs=None, title="Working please wait...", pr_min=0, pr_max=0):
+        progress = QProgressBar()
+        progress.setMaximum(pr_max)
+        progress.setMinimum(pr_min)
+        window_title = self.windowTitle()
+        self.setWindowTitle(title)
+        self.menubar.setEnabled(False)
+        self.statusBar().addWidget(progress)
+        self.statusBar().show()
+        work_thread = threading.Thread(target=work_func, kwargs=kwargs, daemon=True)
+        work_thread.start()
+        app.logger.info(f"THREAD:{work_thread.ident} : Started work on "
+                        f"function `{work_func.__name__}` with args {kwargs} ...")
+        while work_thread.is_alive():
+            QCoreApplication.processEvents()
+        self.statusBar().removeWidget(progress)
+        self.setWindowTitle(window_title)
+        self.menubar.setEnabled(True)
+        self.statusBar().showMessage("Ready...", 3000)
+        app.logger.info(f"THREAD:{work_thread.ident} : Work completed")
+
     def _search_text_entered(self, search_context):
         if isinstance(self.current_view, TableView):
             self.current_view.search(search_context)
@@ -234,9 +283,9 @@ if __name__ == '__main__':
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--paths", metavar="p", type=str, nargs="*", help="Path(s) to read the exif data from")
-    group.add_argument("--database", metavar="db", type=str, nargs=1, help="The full path of the database to open")
+    group.add_argument("--database", metavar="db", type=str, help="The full path of the database to open")
 
-    parser.add_argument("--view", metavar="v", type=str, nargs='?', default='json', help="Select the view to load")
+    parser.add_argument("--view", metavar="v", type=str, default='json', help="Select the view to load")
 
     args = parser.parse_args()
     app.logger.debug(f"Input args supplied     view: {args.view}")

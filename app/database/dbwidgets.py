@@ -2,7 +2,7 @@
 from PyQt6.QtCore import QTimer, pyqtSignal, Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QLineEdit, QApplication, QHBoxLayout, QWidget, QDockWidget, QListWidget, QVBoxLayout, \
-    QTabWidget, QListWidgetItem, QDialog, QDialogButtonBox, QFrame, QLabel
+    QTabWidget, QListWidgetItem, QDialog, QDialogButtonBox, QFrame, QLabel, QProgressDialog
 
 from app import views
 from app.database.ds import Database
@@ -88,8 +88,8 @@ class DatabasePropertyDialog(QDialog):
         main_layout.addWidget(self.tabs)
         main_layout.addWidget(buttons)
         self.setLayout(main_layout)
-        self.setMinimumWidth(400)
-        self.setMinimumHeight(500)
+        self.setMinimumWidth(500)
+        self.setMinimumHeight(300)
         self.setWindowTitle("Database Properties")
 
     @staticmethod
@@ -122,13 +122,19 @@ if __name__ == '__main__':
     #      "/mnt/dev/art-of-being",
     #      "/home/sheldon/Downloads/art-of-being/images/slider-img3.jpg"
     #      ]), save_mode="TESTING MODE")
-    ex = DatabasePropertyDialog()
-    ex.set_database(Database.create_in_memory(
-        ["/home/sheldon/.cddb",
-         "/mnt/dev/testing",
-         "/mnt/dev/art-of-being",
-         "/home/sheldon/Downloads/art-of-being/images/slider-img3.jpg"
-         ]), show_details=True)
-    # print(ex.get_database())
-    # ex.show()
+    # ex = DatabasePropertyDialog()
+    # ex.set_database(Database.create_in_memory(
+    #     ["/home/sheldon/.cddb",
+    #      "/mnt/dev/testing",
+    #      "/mnt/dev/art-of-being",
+    #      "/home/sheldon/Downloads/art-of-being/images/slider-img3.jpg"
+    #      ]), show_details=True)
+    # # print(ex.get_database())
+    ex = QProgressDialog()
+    ex.setWindowTitle("Saving Database")
+    ex.setLabelText("Saving Database please wait")
+    ex.setMaximum(0)
+    ex.setMinimum(0)
+    ex.setCancelButton(None)
+    ex.show()
     sys.exit(xapp.exec())

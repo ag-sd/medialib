@@ -2,7 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.database.ds import Database, DBType, Properties
+from app.database.ds import Database, Properties
+from app.database.props import DBType
 from app.views import ViewType
 
 
@@ -49,10 +50,10 @@ class TestDatabase(unittest.TestCase):
         tmp_files = self.get_temp_files(2)
         db = Database.create_in_memory(paths=tmp_files)
 
-        key1 = db._create_path_key("//a/b/c", ViewType.JSON)
+        key1 = db._create_path_key("//a/b/c")
         self.assertEqual(key1, "a__b__c.json")
 
-        key2 = db._create_path_key("////a/b/c_d", ViewType.JSON)
+        key2 = db._create_path_key("////a/b/c_d")
         self.assertEqual(key2, "a__b__c_d.json")
 
     def test_validation(self):
