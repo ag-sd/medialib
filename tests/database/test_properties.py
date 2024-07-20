@@ -21,7 +21,6 @@ class TestProperties(unittest.TestCase):
             self.assertEqual(db.type, p_db.type)
             self.assertEqual(db.created, p_db.created)
             self.assertEqual(db.updated, p_db.updated)
-            self.assertEqual(db.tags, p_db.tags)
 
     def test_write_db_existing_ini_file(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -43,7 +42,6 @@ class TestProperties(unittest.TestCase):
             self.assertEqual(db.type, p_db.type)
             self.assertEqual(db.created, p_db.created)
             self.assertEqual(db.updated, p_db.updated)
-            self.assertEqual(db.tags, p_db.tags)
 
     def test_read_to_dict(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -59,7 +57,6 @@ class TestProperties(unittest.TestCase):
                 props.DB_TYPE: db.type,
                 props.DB_CREATED: db.created,
                 props.DB_UPDATED: db.updated,
-                props.DB_TAGS: db.tags
             })
 
     @staticmethod

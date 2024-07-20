@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.database.exifinfo import ExifInfo, ExifInfoFormat, ExifInfoStatus
+from app.database.exifinfo import ExifInfo, ExifInfoStatus
 
 
 class TestExifInfo(unittest.TestCase):
@@ -11,7 +11,7 @@ class TestExifInfo(unittest.TestCase):
     def test_get_data_in_memory(self):
         tmp = Path(tempfile.NamedTemporaryFile(suffix='.jpeg').name)
         tmp.touch()
-        test_info = ExifInfo(file=str(tmp), fmt=ExifInfoFormat.JSON)
+        test_info = ExifInfo(file=str(tmp))
         js = json.loads(test_info.data)[0]
         self.assertEqual(js['SourceFile'], str(tmp))
         self.assertEqual(js['ExifTool:Error'], "File is empty")
@@ -20,7 +20,7 @@ class TestExifInfo(unittest.TestCase):
         tmp = Path(tempfile.NamedTemporaryFile(suffix='.jpeg').name)
         tmp.touch()
         output = tempfile.NamedTemporaryFile(suffix='.output').name
-        test_info = ExifInfo(file=str(tmp), fmt=ExifInfoFormat.JSON, save_file=str(output))
+        test_info = ExifInfo(file=str(tmp), save_file=str(output))
         js = json.loads(test_info.data)[0]
         self.assertEqual(js['SourceFile'], str(tmp))
         self.assertEqual(js['ExifTool:Error'], "File is empty")
@@ -33,7 +33,7 @@ class TestExifInfo(unittest.TestCase):
         tmp = Path(tempfile.NamedTemporaryFile(suffix='.jpeg').name)
         tmp.touch()
         output = tempfile.NamedTemporaryFile(suffix='.output').name
-        test_info = ExifInfo(file=str(tmp), fmt=ExifInfoFormat.JSON, save_file=str(output))
+        test_info = ExifInfo(file=str(tmp), save_file=str(output))
         test_info._status = ExifInfoStatus.WORKING
         try:
             test_info.data
@@ -44,7 +44,7 @@ class TestExifInfo(unittest.TestCase):
     def test_file_does_not_exist(self):
         tmp = Path(tempfile.NamedTemporaryFile(suffix='.jpeg').name)
         try:
-            _ = ExifInfo(file=str(tmp), fmt=ExifInfoFormat.JSON)
+            _ = ExifInfo(file=str(tmp))
             self.fail("This call should fail")
         except ValueError as v:
             self.assertEqual(str(v), f"Input {str(tmp)} does not exist. Unable to proceed")
@@ -53,7 +53,7 @@ class TestExifInfo(unittest.TestCase):
         tmp = Path(tempfile.NamedTemporaryFile(suffix='.xyz123').name)
         tmp.touch()
         try:
-            _ = ExifInfo(file=str(tmp), fmt=ExifInfoFormat.JSON)
+            _ = ExifInfo(file=str(tmp))
             self.fail("This call should fail")
         except ValueError as v:
             self.assertTrue(str(v).startswith(f"Input {str(tmp)} is not in the list of supported formats."))

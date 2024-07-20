@@ -1,12 +1,10 @@
 import shutil
-import shutil
 import subprocess
 from enum import Enum, StrEnum
 from pathlib import Path
 
 import app
 from app.database import props
-
 
 # https://exiftool.org/exiftool_pod.html#Input-output-text-formatting
 
@@ -35,7 +33,7 @@ def is_supported(file: str) -> bool:
     return SUPPORTED_FORMATS.find(ext[1:].upper()) >= 0
 
 
-class ExifInfoFormat(Enum):
+class _ExifInfoFormat(Enum):
     CSV = "csv", ["-csv", "-G1", "-r", f"-csvDelim {props.EXIFTOOL_CSV_DELIMITER}"]
     JSON = "json", ["-j", "-G1", "-r"]
     XML = "xml", ["-X", "-g", "-struct", "-r"]
@@ -58,12 +56,12 @@ class ExifInfoStatus(StrEnum):
 class ExifInfo:
     DATA_ENCODING = "utf-8"
 
-    def __init__(self, file, fmt: ExifInfoFormat = ExifInfoFormat.JSON, save_file: str | None = None):
+    def __init__(self, file, save_file: str | None = None):
         super().__init__()
         test_exiftool()
         self._file = file
-        self._format = fmt
-        self._cmd = self._create_command(file, fmt)
+        self._format = _ExifInfoFormat.JSON
+        self._cmd = self._create_command(file, _ExifInfoFormat.JSON)
         self._status = ExifInfoStatus.INITIALIZED
         self._save_file = save_file
         self._data = None
@@ -75,18 +73,8 @@ class ExifInfo:
         return self._file
 
     @property
-    def format(self):
-        return self._format
-
-    @property
     def status(self):
         return self._status
-
-    @property
-    def tags(self):
-        if self._tags is None:
-            self._tags = self.get_tags(self.data)
-        return self._tags
 
     @property
     def data(self):
@@ -145,13 +133,10 @@ class ExifInfo:
         app.logger.debug(f"Writing output to file {output_file}")
         with output_file_obj.open("w", encoding=ExifInfo.DATA_ENCODING) as f_out:
             proc = subprocess.run(command, stdout=f_out, text=True)
-            if proc.stdout == "":
-                raise ValueError("No media was found. Please ensure media that is in the following "
-                                 f"supported formats is present in the search location.\n{SUPPORTED_FORMATS}")
         return proc
 
     @staticmethod
-    def _create_command(file: str, _format: ExifInfoFormat):
+    def _create_command(file: str, _format: _ExifInfoFormat):
         """
         Creates the exiftool command to run
         :param file: the file to query
@@ -165,11 +150,3 @@ class ExifInfo:
         cmd.extend(_format.args)
 
         return cmd
-
-    @staticmethod
-    def get_tags(json_data):
-        # all_tags = []
-        # for entry in json_data:
-        #     all_tags.extend(list(entry.keys()))
-        # return list(dict.fromkeys(all_tags))
-        return []

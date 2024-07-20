@@ -177,7 +177,7 @@ class Database:
         Properties.write(self)
         # Index the Database
         app.logger.info("Indexing database...")
-        if not indexer.create_index(self.save_path, vt.format):
+        if not indexer.create_index(self.save_path):
             app.logger.exception("Unable to index database. It cannot be searched!")
             raise ValueError("Unable to index this database. Please see logs for more details")
         app.logger.info("Done..")

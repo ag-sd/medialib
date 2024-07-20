@@ -8,7 +8,6 @@ from PyQt6.QtGui import QStandardItemModel, QStandardItem, QIcon
 from PyQt6.QtWidgets import QTreeView, QTableView, QAbstractItemView
 
 import app
-from app.database.exifinfo import ExifInfoFormat
 
 _MIME_ICON_CACHE = {}
 _mime_database = QMimeDatabase()
@@ -63,7 +62,7 @@ class ModelManager:
         self._proxy_model = None
 
     @abstractmethod
-    def set_model(self, model_data: list, db_tags: list):
+    def set_model(self, model_data: list):
         raise NotImplemented
 
     def search(self, search_context):
@@ -84,7 +83,7 @@ class JsonView(QTreeView, ModelManager):
         self.setSelectionBehavior(QTreeView.SelectionBehavior.SelectRows)
         self.setAlternatingRowColors(True)
 
-    def set_model(self, model_data: list, db_tags: list):
+    def set_model(self, model_data: list):
         p_model = QStandardItemModel()
         p_model.setColumnCount(2)
         p_model.setHeaderData(0, Qt.Orientation.Horizontal, "Key")
@@ -125,19 +124,18 @@ class TableView(QTableView, ModelManager):
     # https://stackoverflow.com/questions/57764723/make-an-active-search-with-qlistwidget
     # https://stackoverflow.com/questions/20563826/pyqt-qtableview-search-by-hiding-rows
     class TableModel(QAbstractTableModel):
-        def __init__(self, model_data: list, tags: list):
+        def __init__(self, model_data: list):
             super().__init__()
             self._exif_data = []
-            self._exif_cols = tags
             self._QStandardItem_cache = {}
             self._orientation = self._orientation(model_data)
 
-            # all_keys = []
+            all_keys = {}
             for data in model_data:
                 for entry in data.json:
-                    # all_keys.extend(list(entry.keys()))
+                    all_keys.update(dict.fromkeys(entry.keys()))
                     self._exif_data.append(entry)
-            # self._exif_cols = list(dict.fromkeys(all_keys))
+            self._exif_cols = list(all_keys)
 
         @property
         def orientation(self):
@@ -220,21 +218,20 @@ class TableView(QTableView, ModelManager):
         self.horizontalHeader().setSectionsClickable(True)
         self.setSortingEnabled(True)
 
-    def set_model(self, model_data: list, db_tags: list):
-        p_model = self.TableModel(model_data, db_tags)
+    def set_model(self, model_data: list):
+        p_model = self.TableModel(model_data)
         self.setModel(self._create_proxy_model(p_model))
         # self.resizeColumnsToContents()
         # self.resizeRowsToContents()
 
 
 class ViewType(Enum):
-    TABLE = ExifInfoFormat.JSON, TableView, "text-csv", "Display information as a table"
-    JSON = ExifInfoFormat.JSON, JsonView, "application-json", ("Display information in JSON (JavaScript Object "
-                                                               "Notation) formatting")
+    TABLE = TableView, "text-csv", "Display information as a table"
+    JSON = JsonView, "application-json", ("Display information in JSON (JavaScript Object "
+                                          "Notation) formatting")
 
-    def __init__(self, exif_format: ExifInfoFormat, view, icon_name: str, description: str):
+    def __init__(self, view, icon_name: str, description: str):
         self._description = description
-        self._exif_format = exif_format
         self._icon_name = icon_name
         self._view = view
 
@@ -243,14 +240,9 @@ class ViewType(Enum):
         return self._description
 
     @property
-    def format(self):
-        return self._exif_format
-
-    @property
     def view(self):
         return self._view
 
     @property
     def icon(self):
         return self._icon_name
-

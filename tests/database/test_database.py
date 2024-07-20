@@ -35,7 +35,6 @@ class TestDatabase(unittest.TestCase):
             self.assertEqual(db.type, p_db.type)
             self.assertEqual(db.created, p_db.created)
             self.assertEqual(db.updated, p_db.updated)
-            self.assertEqual(db.tags, p_db.tags)
 
     def test_add_paths_dupe(self):
         tmp_files = self.get_temp_files(3)
