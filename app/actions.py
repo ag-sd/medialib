@@ -70,12 +70,17 @@ class MediaLibAction(StrEnum):
     OPEN_GIT = "Go to Project on GitHub..."
     ABOUT = "About"
     SETTINGS = "Preferences..."
+    LOG_DEBUG = "DEBUG"
+    LOG_INFO = "INFO"
+    LOG_WARNING = "WARNING"
+    LOG_EXCEPTION = "EXCEPTION"
 
 
 class DBAction(StrEnum):
     SAVE = "Save..."
     SAVE_AS = "Save As..."
     REFRESH = "Refresh"
+    REFRESH_SELECTED = "Refresh Selected Paths"
     RESET = "Reset"
     OPEN_DB = "Open Database..."
     BOOKMARK = "Add or Remove Favorite"
@@ -91,6 +96,7 @@ class AppMenuBar(QMenuBar):
     _MENU_DATABASE_PATHS = "Database Paths"
     _MENU_DATABASE_HISTORY = "Recently Opened"
     _MENU_DATABASE_BOOKMARKS = "Favorites"
+    _MENU_APPLICATION_LOGS = "Set Application Log Level"
 
     def __init__(self, plugins: list):
         super().__init__()
@@ -112,6 +118,23 @@ class AppMenuBar(QMenuBar):
         for item in paths:
             self._add_path(paths_menu, item)
 
+    def get_selected_db_paths(self):
+        """
+        Returns:
+            All the DB paths that are currently selected
+
+        """
+        paths_menu = _find_action(self._MENU_DATABASE_PATHS, self.db_menu.actions()).menu()
+        q = list(paths_menu.actions())
+        selected = []
+        while len(q) > 0:
+            action = q.pop(0)
+            if action.isChecked():
+                selected.append(action.text())
+        return selected
+
+
+
     def update_recents(self, recents: list):
         self._update_db_path_menu(menu_name=self._MENU_DATABASE_HISTORY, db_paths=recents,
                                   icon_name="folder-open-recent")
@@ -125,7 +148,8 @@ class AppMenuBar(QMenuBar):
         _find_action(DBAction.SAVE_AS, self.db_menu.actions()).setEnabled(True)
         _find_action(DBAction.RESET, self.db_menu.actions()).setEnabled(not database.type == DBType.IN_MEMORY)
         _find_action(DBAction.REFRESH, self.db_menu.actions()).setEnabled(True)
-        _find_action(DBAction.BOOKMARK, self.db_menu.actions()).setEnabled(True)
+        _find_action(DBAction.REFRESH_SELECTED, self.db_menu.actions()).setEnabled(True)
+        _find_action(DBAction.BOOKMARK, self.db_menu.actions()).setEnabled(not database.type == DBType.IN_MEMORY)
 
         paths_menu = _find_action(self._MENU_DATABASE_PATHS, self.db_menu.actions()).menu()
         for action in paths_menu.actions():
@@ -163,7 +187,10 @@ class AppMenuBar(QMenuBar):
                                          tooltip="Save the exif data of all open paths to the DB",
                                          func=self._raise_db_event, enabled=False))
         db_menu.addAction(_create_action(self, DBAction.REFRESH, shortcut="F5", icon="view-refresh",
-                                         tooltip="Save the exif data of the current paths to the DB",
+                                         tooltip="Reload the exif data for the all the database paths",
+                                         func=self._raise_db_event, enabled=False))
+        db_menu.addAction(_create_action(self, DBAction.REFRESH_SELECTED, shortcut="Shift+F5", icon="view-refresh",
+                                         tooltip="Reload the exif data for the the selected database paths",
                                          func=self._raise_db_event, enabled=False))
         db_menu.addAction(_create_action(self, DBAction.RESET, icon="view-restore",
                                          tooltip="Reset this database",
@@ -236,9 +263,9 @@ class AppMenuBar(QMenuBar):
 
         for plugin in plugins:
             pl_action = plugin.toggleViewAction()
-            pl_action.setToolTip("Open the find window to search the current database")
-            pl_action.setShortcut("Ctrl+F")
-            pl_action.setIcon(QIcon.fromTheme("find"))
+            pl_action.setToolTip(plugin.statustip)
+            pl_action.setShortcut(plugin.shortcut)
+            pl_action.setIcon(plugin.icon)
             window_menu.addAction(pl_action)
 
         return window_menu
@@ -248,6 +275,20 @@ class AppMenuBar(QMenuBar):
         help_menu = QMenu("&Help", self)
         help_menu.addAction(_create_action(self, MediaLibAction.OPEN_GIT, self._raise_menu_event,
                                            icon="folder-git", tooltip="Visit this project on GitHub"))
+
+        log_menu = QMenu(self._MENU_APPLICATION_LOGS, self)
+        log_menu.setIcon(QIcon.fromTheme("text-x-generic"))
+        log_menu.addAction(_create_action(self, MediaLibAction.LOG_DEBUG, self._raise_menu_event,
+                                          tooltip="Display all application logs", checked=True))
+        log_menu.addAction(_create_action(self, MediaLibAction.LOG_INFO, self._raise_menu_event,
+                                          tooltip="Do not show debug logs"))
+        log_menu.addAction(_create_action(self, MediaLibAction.LOG_WARNING, self._raise_menu_event,
+                                          tooltip="Display warnings and errors only"))
+        log_menu.addAction(_create_action(self, MediaLibAction.LOG_EXCEPTION, self._raise_menu_event,
+                                          tooltip="Only show application errors"))
+
+        help_menu.addMenu(log_menu)
+
         help_menu.addSeparator()
         help_menu.addAction(_create_action(self, MediaLibAction.ABOUT, self._raise_menu_event, icon="help-about",
                                            tooltip="About this application"))

@@ -1,4 +1,5 @@
 import argparse
+import logging
 import sys
 import threading
 from datetime import datetime
@@ -16,6 +17,7 @@ from app.actions import AppMenuBar, MediaLibAction, DBAction
 from app.database import exifinfo
 from app.database.ds import Database, DatabaseNotFoundException, CorruptedDatabaseException
 from app.views import ViewType, TableView, ModelData
+from app.widgets import ApplicationLogsWindow
 from database.dbwidgets import DatabaseSearch
 
 
@@ -33,8 +35,11 @@ class MediaLibApp(QMainWindow):
         self.current_view_type = ViewType.TABLE if app_args.view is None else ViewType[app_args.view.upper()]
         self.current_view = QWidget()
         self.current_view_type_label = QLabel(self.current_view_type.name)
-        self.current_view_db_name = QLabel("")
+        self.current_view_type_label.setStyleSheet(
+            f"margin-left :{self.current_view_type_label.fontMetrics().horizontalAdvance("  ")}px")
         self.current_view_details = QLabel("")
+        self.current_view_details.setStyleSheet(
+            f"margin-left :{self.current_view_details.fontMetrics().horizontalAdvance("  ")}px")
 
         self.db_search = DatabaseSearch()
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.db_search)
@@ -46,11 +51,10 @@ class MediaLibApp(QMainWindow):
         self.view_layout.addWidget(self.current_view)
         self.statusBar().addPermanentWidget(self.current_view_type_label)
         self.statusBar().addPermanentWidget(self.current_view_details)
-        self.statusBar().addPermanentWidget(self.current_view_db_name)
 
         # Menu Bar
         app.logger.debug("Configure Menubar ...")
-        self.menubar = AppMenuBar(plugins=[self.db_search])
+        self.menubar = AppMenuBar(plugins=[])
         self.menubar.update_recents(appsettings.get_recently_opened_databases())
         self.menubar.update_bookmarks(appsettings.get_bookmarks())
         self.menubar.view_changed.connect(self._view_changed)
@@ -107,7 +111,6 @@ class MediaLibApp(QMainWindow):
         # Update Menubar
         self.menubar.show_database(self.database)
         # Update display
-        self.current_view_db_name.setText(self.database.name)
         self.setWindowTitle(f"{self.database.name} : {app.__APP_NAME__}")
         self._paths_changed(self.database.paths)
 
@@ -143,6 +146,14 @@ class MediaLibApp(QMainWindow):
                 QMessageBox.about(self, app.__APP_NAME__,
                                   html.format(APP_NAME=app.__NAME__, APP_URL=app.__APP_URL__,
                                               VERSION=app.__VERSION__, YEAR=datetime.now().year))
+            case MediaLibAction.LOG_EXCEPTION:
+                app.logger.setLevel(logging.ERROR)
+            case MediaLibAction.LOG_DEBUG:
+                app.logger.setLevel(logging.DEBUG)
+            case MediaLibAction.LOG_INFO:
+                app.logger.setLevel(logging.INFO)
+            case MediaLibAction.LOG_WARNING:
+                app.logger.setLevel(logging.WARNING)
 
     def _db_action_event(self, db_action):
         app.logger.debug(f"DB action triggered {db_action}")
@@ -191,14 +202,25 @@ class MediaLibApp(QMainWindow):
                 self.reload_database()
 
             case DBAction.REFRESH:
-                def refresh_database():
-                    self.database.clear_cache()
-                    for path in self.database.paths:
-                        self.database.data(path, refresh=True)
-                self._do_work_in_thread(refresh_database, kwargs={}, title=f"Refreshing database...")
+                self._do_work_in_thread(self._refresh_paths, kwargs={"paths": self.database.paths},
+                                        title=f"Refreshing database...", success_msg="Database refreshed successfully")
                 self.reload_database()
+
+            case DBAction.REFRESH_SELECTED:
+                selected_paths = self.menubar.get_selected_db_paths()
+                if len(selected_paths) > 0:
+                    self._do_work_in_thread(self._refresh_paths, kwargs={"paths": selected_paths},
+                                            title=f"Refreshing {len(selected_paths)} path(s)...",
+                                            success_msg="Selected paths were refreshed successfully")
+                    self._paths_changed(selected_paths)
+
             case _:
                 app.logger.warning(f"Not Implemented: {db_action}")
+
+    def _refresh_paths(self, paths):
+        self.database.clear_cache()
+        for path in paths:
+            self.database.data(path, refresh=True)
 
     def _open_database(self, db_path: str):
         try:
@@ -217,11 +239,13 @@ class MediaLibApp(QMainWindow):
             app.logger.debug(f"Selection changed to {_paths}")
             model_data = []
             for path in _paths:
-                self._do_work_in_thread(self.database.data, {"path": str(path)})
+                self._do_work_in_thread(self.database.data, {"path": str(path)},
+                                        title=f"Loading {len(_paths)} paths",
+                                        success_msg=f"{len(_paths)} paths were loaded successfully")
                 # Data is added to cache, so pick it up from cache
                 data = ModelData(json=self.database.data(path=str(path)), path=path)
                 model_data.append(data)
-            self._display_model_data(model_data)
+            self._display_model_data(model_data, _paths)
         except Exception as exception:
             apputils.show_exception(self, exception)
 
@@ -235,20 +259,24 @@ class MediaLibApp(QMainWindow):
         self.current_view_type_label.setText(view.name)
         # If a path is being viewed, reload it
         if self.current_view_details.property("model_data") is not None:
-            self._display_model_data(self.current_view_details.property("model_data"))
+            self._display_model_data(self.current_view_details.property("model_data"),
+                                     self.current_view_details.property("paths"))
 
-    def _display_model_data(self, model_data: list):
-        view_details = f"data for {len(model_data)} path{'s' if len(model_data) > 1 else ''} in"
-        self.current_view.set_model(model_data, self.database.tags)
+    def _display_model_data(self, model_data: list, paths: list):
+        view_details = f"{len(paths)} path{'s' if len(paths) > 1 else ''} displayed"
+        self.current_view.set_model(model_data)
         self.current_view_details.setText(view_details)
         self.current_view_details.setProperty("model_data", model_data)
+        self.current_view_details.setProperty("paths", paths)
+        self.current_view_details.setToolTip("\n".join(paths))
         app.logger.debug(view_details)
 
     def _get_new_path(self, is_dir=False) -> list:
         exiftool_file_filter = f"ExifTool Supported Files (*.{' *.'.join(exifinfo.SUPPORTED_FORMATS.split(' '))})"
         return apputils.get_new_paths(parent=self, is_dir=is_dir, file_filter=exiftool_file_filter)
 
-    def _do_work_in_thread(self, work_func, kwargs=None, title="Working please wait...", pr_min=0, pr_max=0):
+    def _do_work_in_thread(self, work_func, kwargs=None, title="Working please wait...", pr_min=0, pr_max=0,
+                           success_msg="Ready..."):
         progress = QProgressBar()
         progress.setMaximum(pr_max)
         progress.setMinimum(pr_min)
@@ -261,13 +289,14 @@ class MediaLibApp(QMainWindow):
         work_thread.start()
         app.logger.info(f"THREAD:{work_thread.ident} : Started work on "
                         f"function `{work_func.__name__}` with args {kwargs} ...")
+        app.logger.info(title)
         while work_thread.is_alive():
             QCoreApplication.processEvents()
         self.statusBar().removeWidget(progress)
         self.setWindowTitle(window_title)
         self.menubar.setEnabled(True)
-        self.statusBar().showMessage("Ready...", 3000)
-        app.logger.info(f"THREAD:{work_thread.ident} : Work completed")
+        self.statusBar().showMessage(success_msg, 5000)
+        app.logger.info(f"THREAD:{work_thread.ident} : Work completed : {success_msg}")
 
     def _search_text_entered(self, search_context):
         if isinstance(self.current_view, TableView):

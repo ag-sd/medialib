@@ -11,11 +11,8 @@ TODO
 
 ## TODO
 ### Currently working on
-- QTWebEngine support: 
-  - https://doc.qt.io/qt-5/qtwebengine-webenginewidgets-markdowneditor-example.html 
-  - https://doc-snapshots.qt.io/qtforpython-6.2/overviews/qtwebengine-webenginewidgets-markdowneditor-example.html
+- Searching using DuckDB
 - Tests
-- Nemo app integration
 
 ### Backlog
 - DB support
@@ -29,6 +26,8 @@ TODO
     - Support for search, export and preview
 - Map view
 - Thumb view
+- Nemo app integration
+- SQL searching of in-memory databases
 
 ### Done
 - [x] Remove toolbar and make it a menu instead
