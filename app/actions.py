@@ -105,7 +105,8 @@ class AppMenuBar(QMenuBar):
         self.addMenu(self._create_file_menu())
         self.addMenu(self.db_menu)
         self.addMenu(self.view_menu)
-        self.addMenu(self._create_window_menu(plugins))
+        if len(plugins) > 0:
+            self.addMenu(self._create_window_menu(plugins))
         self.addMenu(self._create_help_menu())
 
     def add_db_paths(self, paths):
@@ -132,8 +133,6 @@ class AppMenuBar(QMenuBar):
             if action.isChecked():
                 selected.append(action.text())
         return selected
-
-
 
     def update_recents(self, recents: list):
         self._update_db_path_menu(menu_name=self._MENU_DATABASE_HISTORY, db_paths=recents,

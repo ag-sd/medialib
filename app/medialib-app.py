@@ -17,7 +17,6 @@ from app.actions import AppMenuBar, MediaLibAction, DBAction
 from app.database import exifinfo
 from app.database.ds import Database, DatabaseNotFoundException, CorruptedDatabaseException
 from app.views import ViewType, TableView, ModelData
-from app.widgets import ApplicationLogsWindow
 from database.dbwidgets import DatabaseSearch
 
 
