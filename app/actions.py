@@ -80,6 +80,7 @@ class DBAction(StrEnum):
     REFRESH_SELECTED = "Refresh Selected Paths"
     RESET = "Reset"
     OPEN_DB = "Open Database..."
+    SHUT_DB = "Close Database"
     BOOKMARK = "Add or Remove Favorite"
 
 
@@ -193,11 +194,11 @@ class AppMenuBar(QMenuBar):
         return selected
 
     def update_recents(self, recents: list):
-        self._update_db_path_menu(menu_name=self._MENU_DATABASE_HISTORY, db_paths=recents,
-                                  icon_name="folder-open-recent")
+        self._update_db_list(menu_name=self._MENU_DATABASE_HISTORY, sub_items=recents,
+                             icon_name="folder-open-recent")
 
     def update_bookmarks(self, bookmarks: list):
-        self._update_db_path_menu(menu_name=self._MENU_DATABASE_BOOKMARKS, db_paths=bookmarks, icon_name="bookmarks")
+        self._update_db_list(menu_name=self._MENU_DATABASE_BOOKMARKS, sub_items=bookmarks, icon_name="bookmarks")
 
     def show_database(self, database: Database):
         # You can only save to an existing database. Default databases need to be 'saved as'
@@ -207,22 +208,38 @@ class AppMenuBar(QMenuBar):
         _find_action(DBAction.REFRESH, self.db_menu.actions()).setEnabled(True)
         _find_action(DBAction.REFRESH_SELECTED, self.db_menu.actions()).setEnabled(True)
         _find_action(DBAction.BOOKMARK, self.db_menu.actions()).setEnabled(not database.type == DBType.IN_MEMORY)
+        _find_action(DBAction.SHUT_DB, self.db_menu.actions()).setEnabled(True)
 
         paths_menu = _find_action(self._MENU_DATABASE_PATHS, self.db_menu.actions()).menu()
-        for action in paths_menu.actions():
-            paths_menu.removeAction(action)
+        self._clear_menu(paths_menu)
         self.add_db_paths(database.paths)
 
-    def _update_db_path_menu(self, menu_name: str, db_paths: list, icon_name: str):
+    def shut_database(self):
+        _find_action(DBAction.SAVE, self.db_menu.actions()).setEnabled(False)
+        _find_action(DBAction.SAVE_AS, self.db_menu.actions()).setEnabled(False)
+        _find_action(DBAction.RESET, self.db_menu.actions()).setEnabled(False)
+        _find_action(DBAction.REFRESH, self.db_menu.actions()).setEnabled(False)
+        _find_action(DBAction.REFRESH_SELECTED, self.db_menu.actions()).setEnabled(False)
+        _find_action(DBAction.BOOKMARK, self.db_menu.actions()).setEnabled(False)
+        _find_action(DBAction.SHUT_DB, self.db_menu.actions()).setEnabled(False)
+
+        paths_menu = _find_action(self._MENU_DATABASE_PATHS, self.db_menu.actions()).menu()
+        self._clear_menu(paths_menu)
+
+    def _update_db_list(self, menu_name: str, sub_items: list, icon_name: str):
         _menu = _find_action(menu_name, self.db_menu.actions()).menu()
         if _menu is None:
             raise AttributeError(f"{menu_name} not in this list")
 
-        for action in _menu.actions():
-            _menu.removeAction(action)
-
-        for path in db_paths:
+        self._clear_menu(_menu)
+        for path in sub_items:
             _menu.addAction(_create_action(self, path, func=self._open_db_event, icon=icon_name))
+
+    @staticmethod
+    def _clear_menu(menu):
+        # TODO: Test
+        for action in list(menu.actions()):
+            menu.removeAction(action)
 
     def _create_view_menu(self):
         # TODO: Test
@@ -243,6 +260,10 @@ class AppMenuBar(QMenuBar):
         db_menu.addAction(_create_action(self, DBAction.SAVE_AS, shortcut="Ctrl+Shift+S", icon="document-save-as",
                                          tooltip="Save the exif data of all open paths to the DB",
                                          func=self._raise_db_event, enabled=False))
+        db_menu.addAction(_create_action(self, DBAction.SHUT_DB, shortcut="Ctrl+W", icon="document-close",
+                                         tooltip="Close the database, saving it if required",
+                                         func=self._raise_db_event, enabled=False))
+        db_menu.addSeparator()
         db_menu.addAction(_create_action(self, DBAction.REFRESH, shortcut="F5", icon="view-refresh",
                                          tooltip="Reload the exif data for the all the database paths",
                                          func=self._raise_db_event, enabled=False))

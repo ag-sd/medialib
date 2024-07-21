@@ -93,15 +93,8 @@ class MediaLibApp(QMainWindow):
             self.reload_database()
 
     def closeEvent(self, event):
-        if self.database and self.database.is_modified:
-            save_confirm = QMessageBox.question(self, f"Quit {app.__NAME__}",
-                                                f"<p><b>The Database has changed</b></p>"
-                                                f"Save changes to Database {self.database.name} before closing?")
-            if save_confirm == QMessageBox.StandardButton.Yes:
-                if self.database.save_path is not None:
-                    self.database.save()
-                else:
-                    self._db_action_event(DBAction.SAVE_AS)
+        if self.database:
+            self.close_database()
         super().closeEvent(event)
 
     def reload_database(self):
@@ -111,6 +104,23 @@ class MediaLibApp(QMainWindow):
         # Update display
         self.setWindowTitle(f"{self.database.name} : {app.__APP_NAME__}")
         self._paths_changed(self.database.paths)
+
+    def close_database(self):
+        if self.database:
+            app.logger.debug("Closing Database ...")
+            # Check if the db needs to be saved
+            if self.database.is_modified:
+                save_confirm = QMessageBox.question(self, f"CLose {self.database.name}",
+                                                    f"<p><b>The Database has changed</b></p>"
+                                                    f"Save changes to Database {self.database.name} before closing?")
+                if save_confirm == QMessageBox.StandardButton.Yes:
+                    self._db_action_event(DBAction.SAVE)
+            # Update Menubar
+            self.menubar.shut_database()
+            # Update display
+            self.setWindowTitle(f"{app.__APP_NAME__}")
+            self._paths_changed([])
+            self.database = None
 
     def _action_event(self, event: MediaLibAction):
         app.logger.debug(f"Action triggered {event}")
@@ -188,6 +198,9 @@ class MediaLibApp(QMainWindow):
                 if open_location != "":
                     self._open_database(open_location)
 
+            case DBAction.SHUT_DB:
+                self.close_database()
+
             case DBAction.RESET:
                 self.reload_database()
 
@@ -253,13 +266,21 @@ class MediaLibApp(QMainWindow):
                                      self.current_view_details.property("paths"))
 
     def _display_model_data(self, model_data: list, paths: list):
-        view_details = f"{len(paths)} path{'s' if len(paths) > 1 else ''} displayed"
         self.current_view.set_model(model_data)
-        self.current_view_details.setText(view_details)
-        self.current_view_details.setProperty("model_data", model_data)
-        self.current_view_details.setProperty("paths", paths)
-        self.current_view_details.setToolTip("\n".join(paths))
-        app.logger.debug(view_details)
+        # Adjust view details
+        if len(model_data) > 0:
+            view_details = f"{len(paths)} path{'s' if len(paths) > 1 else ''} displayed"
+            self.current_view_details.setText(view_details)
+            self.current_view_details.setProperty("model_data", model_data)
+            self.current_view_details.setProperty("paths", paths)
+            self.current_view_details.setToolTip("\n".join(paths))
+            app.logger.debug(view_details)
+        else:
+            # This means the model data was unloaded
+            self.current_view_details.setText("")
+            self.current_view_details.setProperty("model_data", None)
+            self.current_view_details.setProperty("paths", None)
+            self.current_view_details.setToolTip("")
 
     def _get_new_path(self, is_dir=False) -> list:
         exiftool_file_filter = f"ExifTool Supported Files (*.{' *.'.join(exifinfo.SUPPORTED_FORMATS.split(' '))})"
@@ -304,7 +325,7 @@ if __name__ == '__main__':
     group.add_argument("--paths", metavar="p", type=str, nargs="*", help="Path(s) to read the exif data from")
     group.add_argument("--database", metavar="db", type=str, help="The full path of the database to open")
 
-    parser.add_argument("--view", metavar="v", type=str, default='json', help="Select the view to load")
+    parser.add_argument("--view", metavar="v", type=str, default='table', help="Select the view to load")
 
     args = parser.parse_args()
     app.logger.debug(f"Input args supplied     view: {args.view}")
