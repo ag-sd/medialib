@@ -1,3 +1,4 @@
+import logging
 import pickle
 from pathlib import Path
 
@@ -147,6 +148,14 @@ def set_bookmarks(bookmarks_list: list):
 
 def get_recent_max_size():
     return 10
+
+
+def set_log_level(log_level):
+    _settings.set_property("log-level", log_level)
+
+
+def get_log_level():
+    return _settings.get_property("log-level", logging.DEBUG)
 
 
 def push_to_list(item: str, p_list: list, max_list_size: int = get_recent_max_size()):

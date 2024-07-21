@@ -33,6 +33,7 @@ TODO
 - [x] Remove toolbar and make it a menu instead
 - [x] Default icons
 - [x] Menu Support (Removed toolbar and moved all app functionality to menu)
+- [x] Adjusting log levels for better logs
 - DB support
   - [x] Library View
   - Save database

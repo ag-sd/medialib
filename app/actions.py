@@ -1,12 +1,13 @@
+import logging
 from enum import StrEnum
 from functools import partial
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QAction, QIcon
+from PyQt6.QtGui import QAction, QIcon, QActionGroup
 from PyQt6.QtWidgets import QMenuBar, QMenu
 
 import app
-from app import views
+from app import views, appsettings
 from app.database.ds import Database
 from app.database.props import DBType
 from app.views import ViewType
@@ -70,10 +71,6 @@ class MediaLibAction(StrEnum):
     OPEN_GIT = "Go to Project on GitHub..."
     ABOUT = "About"
     SETTINGS = "Preferences..."
-    LOG_DEBUG = "DEBUG"
-    LOG_INFO = "INFO"
-    LOG_WARNING = "WARNING"
-    LOG_EXCEPTION = "EXCEPTION"
 
 
 class DBAction(StrEnum):
@@ -86,6 +83,67 @@ class DBAction(StrEnum):
     BOOKMARK = "Add or Remove Favorite"
 
 
+class LogLevelOptions:
+    LOG_DEBUG = "DEBUG"
+    LOG_INFO = "INFO"
+    LOG_WARNING = "WARNING"
+    LOG_EXCEPTION = "EXCEPTION"
+
+    def __init__(self, parent):
+        self._debug = _create_action(parent, self.LOG_DEBUG, self._log_level_changed,
+                                     tooltip="Display all application logs", checked=False)
+        self._info = _create_action(parent, self.LOG_INFO, self._log_level_changed,
+                                    tooltip="Do not show debug logs", checked=False)
+        self._warning = _create_action(parent, self.LOG_WARNING, self._log_level_changed,
+                                       tooltip="Display warnings and errors only", checked=False)
+        self._error = _create_action(parent, self.LOG_EXCEPTION, self._log_level_changed,
+                                     tooltip="Only show application errors", checked=False)
+
+        self._log_level_group = QActionGroup(parent)
+        self._log_level_group.setExclusionPolicy(QActionGroup.ExclusionPolicy.Exclusive)
+        self._log_level_group.addAction(self._debug)
+        self._log_level_group.addAction(self._info)
+        self._log_level_group.addAction(self._warning)
+        self._log_level_group.addAction(self._error)
+
+        self._log_menu = QMenu("Set Application Log Level", parent)
+        self._log_menu.setIcon(QIcon.fromTheme("text-x-generic"))
+        self._log_menu.addActions([self._debug, self._info, self._warning, self._error])
+        self.set_application_log_level(appsettings.get_log_level())
+
+    @property
+    def log_options_menu(self) -> QMenu:
+        return self._log_menu
+
+    def _log_level_changed(self, log_level):
+        match log_level:
+            case self.LOG_EXCEPTION:
+                self.set_application_log_level(logging.ERROR)
+            case self.LOG_DEBUG:
+                self.set_application_log_level(logging.DEBUG)
+            case self.LOG_INFO:
+                self.set_application_log_level(logging.INFO)
+            case self.LOG_WARNING:
+                self.set_application_log_level(logging.WARNING)
+
+    def _set_log_level_menu_option(self, log_level):
+        match log_level:
+            case logging.DEBUG:
+                self._debug.setChecked(True)
+            case logging.INFO:
+                self._info.setChecked(True)
+            case logging.WARNING:
+                self._warning.setChecked(True)
+            case logging.ERROR:
+                self._error.setChecked(True)
+
+    def set_application_log_level(self, log_level):
+        app.logger.critical(f"Log level changed to {logging.getLevelName(log_level)}")
+        app.logger.setLevel(log_level)
+        appsettings.set_log_level(log_level)
+        self._set_log_level_menu_option(log_level)
+
+
 class AppMenuBar(QMenuBar):
     view_changed = pyqtSignal(ViewType)
     paths_changed = pyqtSignal(list)
@@ -96,10 +154,10 @@ class AppMenuBar(QMenuBar):
     _MENU_DATABASE_PATHS = "Database Paths"
     _MENU_DATABASE_HISTORY = "Recently Opened"
     _MENU_DATABASE_BOOKMARKS = "Favorites"
-    _MENU_APPLICATION_LOGS = "Set Application Log Level"
 
     def __init__(self, plugins: list):
         super().__init__()
+        self._log_level_options = LogLevelOptions(self)
         self.db_menu = self._create_database_menu()
         self.view_menu = self._create_view_menu()
         self.addMenu(self._create_file_menu())
@@ -274,20 +332,7 @@ class AppMenuBar(QMenuBar):
         help_menu = QMenu("&Help", self)
         help_menu.addAction(_create_action(self, MediaLibAction.OPEN_GIT, self._raise_menu_event,
                                            icon="folder-git", tooltip="Visit this project on GitHub"))
-
-        log_menu = QMenu(self._MENU_APPLICATION_LOGS, self)
-        log_menu.setIcon(QIcon.fromTheme("text-x-generic"))
-        log_menu.addAction(_create_action(self, MediaLibAction.LOG_DEBUG, self._raise_menu_event,
-                                          tooltip="Display all application logs", checked=True))
-        log_menu.addAction(_create_action(self, MediaLibAction.LOG_INFO, self._raise_menu_event,
-                                          tooltip="Do not show debug logs"))
-        log_menu.addAction(_create_action(self, MediaLibAction.LOG_WARNING, self._raise_menu_event,
-                                          tooltip="Display warnings and errors only"))
-        log_menu.addAction(_create_action(self, MediaLibAction.LOG_EXCEPTION, self._raise_menu_event,
-                                          tooltip="Only show application errors"))
-
-        help_menu.addMenu(log_menu)
-
+        help_menu.addMenu(self._log_level_options.log_options_menu)
         help_menu.addSeparator()
         help_menu.addAction(_create_action(self, MediaLibAction.ABOUT, self._raise_menu_event, icon="help-about",
                                            tooltip="About this application"))

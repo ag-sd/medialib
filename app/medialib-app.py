@@ -1,5 +1,4 @@
 import argparse
-import logging
 import sys
 import threading
 from datetime import datetime
@@ -145,14 +144,6 @@ class MediaLibApp(QMainWindow):
                 QMessageBox.about(self, app.__APP_NAME__,
                                   html.format(APP_NAME=app.__NAME__, APP_URL=app.__APP_URL__,
                                               VERSION=app.__VERSION__, YEAR=datetime.now().year))
-            case MediaLibAction.LOG_EXCEPTION:
-                app.logger.setLevel(logging.ERROR)
-            case MediaLibAction.LOG_DEBUG:
-                app.logger.setLevel(logging.DEBUG)
-            case MediaLibAction.LOG_INFO:
-                app.logger.setLevel(logging.INFO)
-            case MediaLibAction.LOG_WARNING:
-                app.logger.setLevel(logging.WARNING)
 
     def _db_action_event(self, db_action):
         app.logger.debug(f"DB action triggered {db_action}")
