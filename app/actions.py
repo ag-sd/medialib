@@ -39,7 +39,7 @@ def _create_action(parent, name, func=None, shortcut=None, tooltip=None, icon=No
         action.triggered.connect(partial(func, name))
     if icon:
         action.setIcon(QIcon.fromTheme(icon))
-    if checked:
+    if checked is not None:
         action.setCheckable(True)
         action.setChecked(checked)
     action.setEnabled(enabled)
@@ -100,15 +100,17 @@ class LogLevelOptions:
         self._error = _create_action(parent, self.LOG_EXCEPTION, self._log_level_changed,
                                      tooltip="Only show application errors", checked=False)
 
-        self._log_level_group = QActionGroup(parent)
-        self._log_level_group.setExclusionPolicy(QActionGroup.ExclusionPolicy.Exclusive)
+        self._log_menu = QMenu("Set Application Log Level", parent)
+        self._log_menu.setIcon(QIcon.fromTheme("text-x-generic"))
+
+        self._log_level_group = QActionGroup(self._log_menu)
+        self._log_level_group.setExclusive(True)
+
         self._log_level_group.addAction(self._debug)
         self._log_level_group.addAction(self._info)
         self._log_level_group.addAction(self._warning)
         self._log_level_group.addAction(self._error)
 
-        self._log_menu = QMenu("Set Application Log Level", parent)
-        self._log_menu.setIcon(QIcon.fromTheme("text-x-generic"))
         self._log_menu.addActions([self._debug, self._info, self._warning, self._error])
         self.set_application_log_level(appsettings.get_log_level())
 
