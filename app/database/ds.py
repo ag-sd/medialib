@@ -1,6 +1,7 @@
 import configparser
 import datetime
 import json
+from abc import abstractmethod
 from pathlib import Path
 
 import app
@@ -86,7 +87,7 @@ class Database:
         app.logger.debug("Clearing Cache...")
         self._path_cache = {}
 
-    def data(self, path: str, refresh = False):
+    def data(self, path: str, refresh=False):
         """
         Checks if the path is in cache, if present, returns its data. if missing, and this is an in memory database,
         extracts the exif info and returns it. If it's not in-memory database, returns the data associated with this
@@ -127,6 +128,7 @@ class Database:
                     app.logger.warning(f"{key} has no exif data.")
                     data = "[]"
             self._path_cache[key] = json.loads(data)
+            self._update_tags(path)
 
         app.logger.debug(f"Returning exif data for '{key}' from cache")
         return self._path_cache[key]
@@ -223,6 +225,12 @@ class Database:
         path_parts = Path(path).parts
         key = f"{'__'.join(path_parts[1:])}.{ViewType.JSON.name.lower()}"
         return key
+
+    def _update_tags(self, _path):
+        current_tags = dict(self._tags)
+        for entry in self._path_cache[self._create_path_key(_path)]:
+            current_tags.update(dict.fromkeys(entry.keys()))
+        self._tags = list(current_tags)
 
     @classmethod
     def create_in_memory(cls, paths: list, save_path=None):
@@ -341,3 +349,14 @@ class Properties:
     def _get_config_file(db_path: str) -> str:
         config_file = Path(db_path) / f"{props.PROPERTIES_FILE}.ini"
         return str(config_file)
+
+
+class HasDatabaseDisplaySupport:
+
+    @abstractmethod
+    def show_database(self, database: Database):
+        raise NotImplemented
+
+    @abstractmethod
+    def shut_database(self):
+        raise NotImplemented

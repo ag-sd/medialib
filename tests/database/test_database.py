@@ -76,6 +76,24 @@ class TestDatabase(unittest.TestCase):
         except ValueError as v2:
             self.assertEqual(str(v2), "Database path 'a' is is not a valid location")
 
+    def test_tags_lazy_get(self):
+        tmp_files = self.get_temp_files(2)
+        db = Database.create_in_memory(paths=tmp_files)
+        self.assertEqual(db._tags, [])
+        db.data(tmp_files[0])
+        self.assertEqual(db.tags,
+                         ['SourceFile',
+                          'ExifTool:ExifToolVersion',
+                          'ExifTool:Error',
+                          'System:FileName',
+                          'System:Directory',
+                          'System:FileSize',
+                          'System:FileModifyDate',
+                          'System:FileAccessDate',
+                          'System:FileInodeChangeDate',
+                          'System:FilePermissions']
+                         )
+
     @staticmethod
     def get_temp_files(count) -> list:
         files = []

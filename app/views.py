@@ -62,7 +62,7 @@ class ModelManager:
         self._proxy_model = None
 
     @abstractmethod
-    def set_model(self, model_data: list):
+    def set_model(self, model_data: list, fields: list):
         raise NotImplemented
 
     def search(self, search_context):
@@ -83,19 +83,19 @@ class JsonView(QTreeView, ModelManager):
         self.setSelectionBehavior(QTreeView.SelectionBehavior.SelectRows)
         self.setAlternatingRowColors(True)
 
-    def set_model(self, model_data: list):
+    def set_model(self, model_data: list, fields: list):
         p_model = QStandardItemModel()
         p_model.setColumnCount(2)
         p_model.setHeaderData(0, Qt.Orientation.Horizontal, "Key")
         p_model.setHeaderData(1, Qt.Orientation.Horizontal, "Data")
         for data in model_data:
-            self._build(p_model.invisibleRootItem(), data.path, data.json)
+            self._build(p_model.invisibleRootItem(), data.path, data.json, set(fields))
         self.setModel(self._create_proxy_model(p_model))
         self.expandAll()
         self.resizeColumnToContents(0)
         self.resizeColumnToContents(1)
 
-    def _build(self, root: QStandardItem, parent: str, data):
+    def _build(self, root: QStandardItem, parent: str, data, fields: set):
         """
         Recursively builds the tree
         :param root: The root to add leaves to
@@ -106,36 +106,37 @@ class JsonView(QTreeView, ModelManager):
             # Iterate Dict by key
             new_root = QStandardItem(parent)
             for key, value in data.items():
-                self._build(new_root, key, value)
+                self._build(new_root, key, value, fields)
             root.appendRow(new_root)
         elif isinstance(data, list):
             # Iterate List by index
             new_root = QStandardItem(parent)
             for index, value in enumerate(data):
-                self._build(new_root, f"[{index}]", value)
+                self._build(new_root, f"[{index}]", value, fields)
             root.appendRow(new_root)
         else:
             # Key-value pair
-            # app.logger.debug(f"Append {parent} -> {data} to {root.text()}")
-            root.appendRow([QStandardItem(parent), QStandardItem(str(data))])
+            if parent in fields:
+                # app.logger.debug(f"Append {parent} -> {data} to {root.text()}")
+                root.appendRow([QStandardItem(parent), QStandardItem(str(data))])
+            # else:
+            #     app.logger.debug(f"{parent} is not present in fields to be shown")
 
 
 class TableView(QTableView, ModelManager):
     # https://stackoverflow.com/questions/57764723/make-an-active-search-with-qlistwidget
     # https://stackoverflow.com/questions/20563826/pyqt-qtableview-search-by-hiding-rows
     class TableModel(QAbstractTableModel):
-        def __init__(self, model_data: list):
+        def __init__(self, model_data: list, fields: list):
             super().__init__()
             self._exif_data = []
+            self._exif_cols = fields
             self._QStandardItem_cache = {}
             self._orientation = self._orientation(model_data)
 
-            all_keys = {}
             for data in model_data:
                 for entry in data.json:
-                    all_keys.update(dict.fromkeys(entry.keys()))
                     self._exif_data.append(entry)
-            self._exif_cols = list(all_keys)
 
         @property
         def orientation(self):
@@ -218,8 +219,8 @@ class TableView(QTableView, ModelManager):
         self.horizontalHeader().setSectionsClickable(True)
         self.setSortingEnabled(True)
 
-    def set_model(self, model_data: list):
-        p_model = self.TableModel(model_data)
+    def set_model(self, model_data: list, fields: list):
+        p_model = self.TableModel(model_data, fields)
         self.setModel(self._create_proxy_model(p_model))
         # self.resizeColumnsToContents()
         # self.resizeRowsToContents()

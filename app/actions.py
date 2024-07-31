@@ -2,18 +2,20 @@ import logging
 from enum import StrEnum
 from functools import partial
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import pyqtSignal, QObject
 from PyQt6.QtGui import QAction, QIcon, QActionGroup
-from PyQt6.QtWidgets import QMenuBar, QMenu
+from PyQt6.QtWidgets import QMenuBar, QMenu, QPushButton, QWidgetAction, QCheckBox, QWidget
 
 import app
 from app import views, appsettings
-from app.database.ds import Database
+from app.database import props
+from app.database.ds import Database, HasDatabaseDisplaySupport
 from app.database.props import DBType
 from app.views import ViewType
 
 
-def _create_action(parent, name, func=None, shortcut=None, tooltip=None, icon=None, checked=None, enabled=True):
+def _create_action(parent, name, func=None, shortcut=None, tooltip=None, icon=None, checked=None, enabled=True,
+                   widget=None):
     """
     Creates an action for use in a Toolbar or Menu
     :param parent: The actions parent
@@ -24,10 +26,15 @@ def _create_action(parent, name, func=None, shortcut=None, tooltip=None, icon=No
     :param icon: The icon to show for this action
     :param checked: Whether the visual cue associated with this action represents a check mark
     :param enabled: Whether the action is enabled once created
+    :param widget: If a widget is provided, this function will create a QWidgetAction instead of a QAction
     :return: A QAction object representing this action
     """
     # TODO: Test
-    action = QAction(name, parent)
+    if widget is not None:
+        action = QWidgetAction(parent)
+    else:
+        action = QAction(name, parent)
+
     if tooltip and shortcut:
         tooltip = f"{tooltip} ({shortcut})"
     if shortcut:
@@ -64,6 +71,17 @@ def _find_action(text, actions):
             q.extend(action.menu().actions())
 
 
+def _clear_menu(_menu: QMenu):
+    """
+    Removes all entries from a menu
+    Args:
+        _menu: The menu to clear
+
+    """
+    for action in list(_menu.actions()):
+        _menu.removeAction(action)
+
+
 class MediaLibAction(StrEnum):
     OPEN_FILE = "Open Files..."
     OPEN_PATH = "Open Directory..."
@@ -82,15 +100,269 @@ class DBAction(StrEnum):
     OPEN_DB = "Open Database..."
     SHUT_DB = "Close Database"
     BOOKMARK = "Add or Remove Favorite"
+    PATH_CHANGE = "Path Change"
 
 
-class LogLevelOptions:
+class ViewAction(StrEnum):
+    VIEW = "View"
+    FIELD = "Field"
+
+
+class ViewMenu(QMenu, HasDatabaseDisplaySupport):
+    view_event = pyqtSignal(StrEnum, "PyQt_PyObject")
+
+    _PROP_FIELD_ID = "field-ids"
+
+    def show_database(self, database: Database):
+        self._update_all_fields_menu(database)
+        self._update_presets_menu(database)
+
+    def shut_database(self):
+        _clear_menu(self._view_menu_presets)
+        _clear_menu(self._view_menu_all_fields)
+        self._hidden_tags = set()
+        self._all_tags = []
+        self._tag_checkboxes = {}
+
+    def __init__(self, parent):
+        super().__init__("&View", parent=parent)
+        self._combo_stylesheet = f"padding: {parent.fontMetrics().horizontalAdvance('  ')}px; text-align:left;"
+        self._hidden_tags = set()
+        self._all_tags = []
+        self._tag_checkboxes = {}
+        self._view_menu_all_fields = QMenu("All Fields", self)
+        self._view_menu_presets = QMenu("Preset Views", self)
+        self._init_default_menu()
+
+    def _init_default_menu(self):
+        for i, v in enumerate(ViewType):
+            self.addAction(_create_action(self, v.name, func=self._raise_view_event, icon=v.icon,
+                                          shortcut=f"Alt+Shift+{i + 1}", tooltip=v.description))
+
+        self.addSeparator()
+
+        self.addMenu(self._view_menu_all_fields)
+        self.addMenu(self._view_menu_presets)
+
+    def _create_checkbox(self, text, parent, field_name):
+        cb = QCheckBox(text, parent)
+        cb.setToolTip(f"Show/Hide {text} in the view")
+        cb.setStyleSheet(self._combo_stylesheet)
+        cb.clicked.connect(partial(self._checkbox_click_event, cb))
+        cb.setProperty(self._PROP_FIELD_ID, field_name)
+        cb.setChecked(True)
+        self._tag_checkboxes[field_name] = cb
+        return cb
+
+    def _update_all_fields_menu(self, db: Database):
+        orphan_fields_added = False
+        tag_groups = {}
+        for key in db.tags:
+            self._all_tags.append(key)
+            tokens = key.split(":")
+            if len(tokens) == 1:
+                cb = self._create_checkbox(key, self._view_menu_all_fields, tokens[0])
+                self._add_menu_item(self._view_menu_all_fields, cb)
+                orphan_fields_added = True
+            elif len(tokens) == 2:
+                if tokens[0] not in tag_groups:
+                    tag_groups[tokens[0]] = []
+                tag_groups[tokens[0]].append(tokens[1])
+            else:
+                app.logger.warning(f"Unhandled field {key} will not be shown in the view")
+
+        if orphan_fields_added:
+            self._view_menu_all_fields.addSeparator()
+
+        for group, items in sorted(tag_groups.items()):
+            group_menu = QMenu(group, parent=self._view_menu_all_fields)
+            for key in sorted(items):
+                field_name = f"{group}:{key}"
+                cb = self._create_checkbox(key, self._view_menu_all_fields, field_name)
+                self._add_menu_item(group_menu, cb)
+            self._view_menu_all_fields.addMenu(group_menu)
+
+    def _update_presets_menu(self, db: Database):
+        self._create_preset("Basic Fields", "Show basic file information", props.get_basic_fields(), db)
+        self._create_preset("Image Fields", "Show image file information", props.get_image_fields(), db)
+        self._create_preset("All Fields", "Show all available file information", set(self._all_tags), db)
+
+    def _create_preset(self, name: str, tooltip: str, fields: set, database: Database):
+        # Remove fields from the presets that are not in this database
+        filtered_fields = [f for f in fields if f in database.tags]
+        if len(filtered_fields) > 0:
+            action = _create_action(self._view_menu_presets, name, self._preset_clicked_event, tooltip=tooltip)
+            action.setProperty(self._PROP_FIELD_ID, filtered_fields)
+            self._view_menu_presets.addAction(action)
+        else:
+            app.logger.debug(f"{name} will not be shown as none of the fields are in this database")
+
+    def _raise_view_event(self, event):
+        self.view_event.emit(ViewAction.VIEW, ViewType[event])
+
+    def _preset_clicked_event(self, preset_name):
+        menu_item = _find_action(preset_name, self._view_menu_presets.actions())
+        fields = menu_item.property(self._PROP_FIELD_ID)
+        if fields is not None:
+            self._hidden_tags.clear()
+            for f in self._all_tags:
+                if f not in fields:
+                    self._hidden_tags.add(f)
+                    self._tag_checkboxes[f].setChecked(False)
+                else:
+                    self._tag_checkboxes[f].setChecked(True)
+
+            # raise the event
+            self._raise_field_change_event()
+
+    def _checkbox_click_event(self, field):
+        field_id = field.property(self._PROP_FIELD_ID)
+        if field.isChecked():
+            logging.debug(f"{field_id} was checked by user.")
+            self._hidden_tags.remove(field_id)
+        else:
+            logging.debug(f"{field_id} was un-checked by user.")
+            self._hidden_tags.add(field_id)
+        self._raise_field_change_event()
+
+    def _raise_field_change_event(self):
+        self.view_event.emit(ViewAction.FIELD, [f for f in self._all_tags if f not in self._hidden_tags])
+
+    @staticmethod
+    def _add_menu_item(parent: QMenu, widget):
+        _action = _create_action(parent, "", tooltip=widget.toolTip(), widget=widget)
+        _action.setDefaultWidget(widget)
+        parent.addAction(_action)
+
+
+class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
+    database_event = pyqtSignal(DBAction, "PyQt_PyObject")
+
+    _MENU_DB_PATHS = "Database Paths"
+    _MENU_DB_HISTORY = "Recently Opened"
+    _MENU_DB_BOOKMARKS = "Favorites"
+
+    def show_database(self, database: Database):
+        # You can only save to an existing database. Default databases need to be 'saved as'
+        self._save.setEnabled(not database.type == DBType.IN_MEMORY)
+        self._save_as.setEnabled(True)
+        self._reset.setEnabled(not database.type == DBType.IN_MEMORY)
+        self._refresh.setEnabled(True)
+        self._selective_refresh.setEnabled(True)
+        self._add_bookmark.setEnabled(not database.type == DBType.IN_MEMORY)
+        self._shut_db.setEnabled(True)
+
+        _clear_menu(self._paths_menu)
+        for count, item in enumerate(database.paths):
+            self._paths_menu.addAction(_create_action(self, item, func=self._raise_paths_change_event,
+                                                      icon=views.get_mime_type_icon_name(item),
+                                                      shortcut=f"Ctrl+{count + 1}" if count < 9 else None, checked=True)
+                                       )
+
+    def shut_database(self):
+        self._save.setEnabled(False)
+        self._save_as.setEnabled(False)
+        self._reset.setEnabled(False)
+        self._refresh.setEnabled(False)
+        self._selective_refresh.setEnabled(False)
+        self._add_bookmark.setEnabled(False)
+        self._shut_db.setEnabled(False)
+
+        _clear_menu(self._paths_menu)
+
+    def __init__(self, parent):
+        super().__init__("&Database", parent=parent)
+
+        self._save = _create_action(self, DBAction.SAVE, shortcut="Ctrl+S", icon="document-save",
+                                    tooltip="Save the exif data of all open paths to the DB",
+                                    func=self._raise_db_event, enabled=False)
+        self._save_as = _create_action(self, DBAction.SAVE_AS, shortcut="Ctrl+Shift+S", icon="document-save-as",
+                                       tooltip="Save the exif data of all open paths to the DB",
+                                       func=self._raise_db_event, enabled=False)
+        self._shut_db = _create_action(self, DBAction.SHUT_DB, shortcut="Ctrl+W", icon="document-close",
+                                       tooltip="Close the database, saving it if required",
+                                       func=self._raise_db_event, enabled=False)
+        self._refresh = _create_action(self, DBAction.REFRESH, shortcut="F5", icon="view-refresh",
+                                       tooltip="Reload the exif data for the all the database paths",
+                                       func=self._raise_db_event, enabled=False)
+        self._selective_refresh = _create_action(self, DBAction.REFRESH_SELECTED, shortcut="Shift+F5",
+                                                 icon="view-refresh", func=self._raise_db_event, enabled=False,
+                                                 tooltip="Reload the exif data for the the selected database paths")
+        self._reset = _create_action(self, DBAction.RESET, icon="view-restore",
+                                     tooltip="Reset this database",
+                                     func=self._raise_db_event, enabled=False)
+        self._add_bookmark = _create_action(self, DBAction.BOOKMARK, icon="bookmark",
+                                            tooltip="Add or remove this database from favorites",
+                                            func=self._raise_db_event, enabled=False)
+        self._open_db = _create_action(self, DBAction.OPEN_DB, shortcut="Ctrl+D",
+                                       icon="database-open", func=self._raise_db_event,
+                                       tooltip="Open a non registered private database")
+
+        self._paths_menu = QMenu(self._MENU_DB_PATHS, self)
+        self._paths_menu.setIcon(QIcon.fromTheme("database-paths"))
+        self._history_menu = QMenu(self._MENU_DB_HISTORY, self)
+        self._history_menu.setIcon(QIcon.fromTheme("folder-open-recent"))
+        self._bookmarks_menu = QMenu(self._MENU_DB_BOOKMARKS, self)
+        self._bookmarks_menu.setIcon(QIcon.fromTheme("bookmark"))
+
+        self._create_menu()
+
+    def update_recents(self, recents: list):
+        self._update_db_list(self._history_menu, sub_items=recents,
+                             icon_name="folder-open-recent")
+
+    def update_bookmarks(self, bookmarks: list):
+        self._update_db_list(self._bookmarks_menu, sub_items=bookmarks, icon_name="bookmarks")
+
+    def _create_menu(self):
+        self.addAction(self._save)
+        self.addAction(self._save_as)
+        self.addAction(self._shut_db)
+        self.addSeparator()
+        self.addAction(self._refresh)
+        self.addAction(self._selective_refresh)
+        self.addAction(self._reset)
+        self.addAction(self._add_bookmark)
+        self.addSeparator()
+        self.addMenu(self._paths_menu)
+        self.addSeparator()
+        self.addAction(self._open_db)
+        self.addSeparator()
+        self.addMenu(self._history_menu)
+        self.addMenu(self._bookmarks_menu)
+
+    def _update_db_list(self, menu: QMenu, sub_items: list, icon_name: str):
+        _clear_menu(menu)
+        for path in sub_items:
+            menu.addAction(_create_action(self, path, func=self._open_db_event, icon=icon_name))
+
+    def _raise_paths_change_event(self, _):
+        paths = []
+        for item in self._paths_menu.actions():
+            if item.isChecked():
+                paths.append(item.text())
+        self.database_event.emit(DBAction.PATH_CHANGE, paths)
+
+    def _open_db_event(self, db_to_open):
+        self.database_event.emit(DBAction.OPEN_DB, db_to_open)
+
+    def _raise_db_event(self, action):
+        self.database_event.emit(DBAction(action), None)
+
+
+class HelpMenu(QMenu):
+    help_event = pyqtSignal(MediaLibAction)
+
     LOG_DEBUG = "DEBUG"
     LOG_INFO = "INFO"
     LOG_WARNING = "WARNING"
     LOG_EXCEPTION = "EXCEPTION"
 
     def __init__(self, parent):
+        super().__init__("&Help", parent)
+        self._log_menu = QMenu("Set Application Log Level", parent)
+        self._log_menu.setIcon(QIcon.fromTheme("text-x-generic"))
+
         self._debug = _create_action(parent, self.LOG_DEBUG, self._log_level_changed,
                                      tooltip="Display all application logs", checked=False)
         self._info = _create_action(parent, self.LOG_INFO, self._log_level_changed,
@@ -99,10 +371,9 @@ class LogLevelOptions:
                                        tooltip="Display warnings and errors only", checked=False)
         self._error = _create_action(parent, self.LOG_EXCEPTION, self._log_level_changed,
                                      tooltip="Only show application errors", checked=False)
+        self._create_menu()
 
-        self._log_menu = QMenu("Set Application Log Level", parent)
-        self._log_menu.setIcon(QIcon.fromTheme("text-x-generic"))
-
+    def _create_menu(self):
         self._log_level_group = QActionGroup(self._log_menu)
         self._log_level_group.setExclusive(True)
 
@@ -114,9 +385,15 @@ class LogLevelOptions:
         self._log_menu.addActions([self._debug, self._info, self._warning, self._error])
         self.set_application_log_level(appsettings.get_log_level())
 
-    @property
-    def log_options_menu(self) -> QMenu:
-        return self._log_menu
+        self.addAction(_create_action(self, MediaLibAction.OPEN_GIT, self._raise_menu_event,
+                                      icon="folder-git", tooltip="Visit this project on GitHub"))
+        self.addMenu(self._log_menu)
+        self.addSeparator()
+        self.addAction(_create_action(self, MediaLibAction.ABOUT, self._raise_menu_event, icon="help-about",
+                                      tooltip="About this application"))
+
+    def _raise_menu_event(self, action):
+        self.help_event.emit(MediaLibAction(action))
 
     def _log_level_changed(self, log_level):
         match log_level:
@@ -147,38 +424,49 @@ class LogLevelOptions:
         self._set_log_level_menu_option(log_level)
 
 
-class AppMenuBar(QMenuBar):
-    view_changed = pyqtSignal(ViewType)
-    paths_changed = pyqtSignal(list)
-    open_db_action = pyqtSignal(str)
-    medialib_action = pyqtSignal(MediaLibAction)
-    database_action = pyqtSignal(DBAction)
+class FileMenu(QMenu):
+    file_event = pyqtSignal(MediaLibAction)
 
-    _MENU_DATABASE_PATHS = "Database Paths"
-    _MENU_DATABASE_HISTORY = "Recently Opened"
-    _MENU_DATABASE_BOOKMARKS = "Favorites"
+    def __init__(self, parent):
+        super().__init__("&File", parent)
+        self.addAction(_create_action(self, MediaLibAction.OPEN_FILE, shortcut="Ctrl+O", func=self._raise_menu_event,
+                                      icon="document-open", tooltip="Open a file to view its exif data"))
+        self.addAction(_create_action(self, MediaLibAction.OPEN_PATH, shortcut="Ctrl+D", func=self._raise_menu_event,
+                                      tooltip="Open a directory to view info of all supported files in it",
+                                      icon="document-open-folder"))
+        self.addSeparator()
+        self.addAction(_create_action(self, MediaLibAction.SETTINGS, func=self._raise_menu_event, shortcut="Ctrl+,",
+                                      icon="preferences-system", tooltip=f"Open {app.__NAME__} Preferences"))
+        self.addSeparator()
+        self.addAction(_create_action(self, MediaLibAction.APP_EXIT, func=self._raise_menu_event,
+                                      shortcut="Ctrl+Q", icon="application-exit", tooltip=f"Quit {app.__NAME__}"))
+
+    def _raise_menu_event(self, action):
+        self.file_event.emit(MediaLibAction(action))
+
+
+class AppMenuBar(QMenuBar, HasDatabaseDisplaySupport):
+    view_event = pyqtSignal(ViewAction, "PyQt_PyObject")
+    db_event = pyqtSignal(DBAction, "PyQt_PyObject")
+    medialib_event = pyqtSignal(MediaLibAction)
 
     def __init__(self, plugins: list):
         super().__init__()
-        self._log_level_options = LogLevelOptions(self)
-        self.db_menu = self._create_database_menu()
-        self.view_menu = self._create_view_menu()
-        self.addMenu(self._create_file_menu())
-        self.addMenu(self.db_menu)
-        self.addMenu(self.view_menu)
+        self._db_menu = DatabaseMenu(self)
+        self._db_menu.database_event.connect(self.db_event)
+        self._view_menu = ViewMenu(self)
+        self._view_menu.view_event.connect(self.view_event)
+        self._help_menu = HelpMenu(self)
+        self._help_menu.help_event.connect(self.medialib_event)
+        self._file_menu = FileMenu(self)
+        self._file_menu.file_event.connect(self.medialib_event)
+
+        self.addMenu(self._file_menu)
+        self.addMenu(self._db_menu)
+        self.addMenu(self._view_menu)
         if len(plugins) > 0:
             self.addMenu(self._create_window_menu(plugins))
-        self.addMenu(self._create_help_menu())
-
-    def add_db_paths(self, paths):
-        # TODO: Test
-        """
-        Adds new paths to the database path menu, if these paths does not exist already
-        :param paths: The paths to add
-        """
-        paths_menu = _find_action(self._MENU_DATABASE_PATHS, self.db_menu.actions()).menu()
-        for item in paths:
-            self._add_path(paths_menu, item)
+        self.addMenu(self._help_menu)
 
     def get_selected_db_paths(self):
         """
@@ -196,147 +484,18 @@ class AppMenuBar(QMenuBar):
         return selected
 
     def update_recents(self, recents: list):
-        self._update_db_list(menu_name=self._MENU_DATABASE_HISTORY, sub_items=recents,
-                             icon_name="folder-open-recent")
+        self._db_menu.update_recents(recents)
 
     def update_bookmarks(self, bookmarks: list):
-        self._update_db_list(menu_name=self._MENU_DATABASE_BOOKMARKS, sub_items=bookmarks, icon_name="bookmarks")
+        self._db_menu.update_bookmarks(bookmarks)
 
     def show_database(self, database: Database):
-        # You can only save to an existing database. Default databases need to be 'saved as'
-        _find_action(DBAction.SAVE, self.db_menu.actions()).setEnabled(not database.type == DBType.IN_MEMORY)
-        _find_action(DBAction.SAVE_AS, self.db_menu.actions()).setEnabled(True)
-        _find_action(DBAction.RESET, self.db_menu.actions()).setEnabled(not database.type == DBType.IN_MEMORY)
-        _find_action(DBAction.REFRESH, self.db_menu.actions()).setEnabled(True)
-        _find_action(DBAction.REFRESH_SELECTED, self.db_menu.actions()).setEnabled(True)
-        _find_action(DBAction.BOOKMARK, self.db_menu.actions()).setEnabled(not database.type == DBType.IN_MEMORY)
-        _find_action(DBAction.SHUT_DB, self.db_menu.actions()).setEnabled(True)
-
-        paths_menu = _find_action(self._MENU_DATABASE_PATHS, self.db_menu.actions()).menu()
-        self._clear_menu(paths_menu)
-        self.add_db_paths(database.paths)
+        self._view_menu.show_database(database)
+        self._db_menu.show_database(database)
 
     def shut_database(self):
-        _find_action(DBAction.SAVE, self.db_menu.actions()).setEnabled(False)
-        _find_action(DBAction.SAVE_AS, self.db_menu.actions()).setEnabled(False)
-        _find_action(DBAction.RESET, self.db_menu.actions()).setEnabled(False)
-        _find_action(DBAction.REFRESH, self.db_menu.actions()).setEnabled(False)
-        _find_action(DBAction.REFRESH_SELECTED, self.db_menu.actions()).setEnabled(False)
-        _find_action(DBAction.BOOKMARK, self.db_menu.actions()).setEnabled(False)
-        _find_action(DBAction.SHUT_DB, self.db_menu.actions()).setEnabled(False)
-
-        paths_menu = _find_action(self._MENU_DATABASE_PATHS, self.db_menu.actions()).menu()
-        self._clear_menu(paths_menu)
-
-    def _update_db_list(self, menu_name: str, sub_items: list, icon_name: str):
-        _menu = _find_action(menu_name, self.db_menu.actions()).menu()
-        if _menu is None:
-            raise AttributeError(f"{menu_name} not in this list")
-
-        self._clear_menu(_menu)
-        for path in sub_items:
-            _menu.addAction(_create_action(self, path, func=self._open_db_event, icon=icon_name))
-
-    @staticmethod
-    def _clear_menu(menu):
-        # TODO: Test
-        for action in list(menu.actions()):
-            menu.removeAction(action)
-
-    def _create_view_menu(self):
-        # TODO: Test
-        view_menu = QMenu("&View", self)
-
-        for i, v in enumerate(ViewType):
-            view_menu.addAction(_create_action(self, v.name, func=self._raise_view_event, icon=v.icon,
-                                               shortcut=f"Alt+Shift+{i + 1}", tooltip=v.description))
-
-        return view_menu
-
-    def _create_database_menu(self):
-        # TODO: Test
-        db_menu = QMenu("&Database", self)
-        db_menu.addAction(_create_action(self, DBAction.SAVE, shortcut="Ctrl+S", icon="document-save",
-                                         tooltip="Save the exif data of all open paths to the DB",
-                                         func=self._raise_db_event, enabled=False))
-        db_menu.addAction(_create_action(self, DBAction.SAVE_AS, shortcut="Ctrl+Shift+S", icon="document-save-as",
-                                         tooltip="Save the exif data of all open paths to the DB",
-                                         func=self._raise_db_event, enabled=False))
-        db_menu.addAction(_create_action(self, DBAction.SHUT_DB, shortcut="Ctrl+W", icon="document-close",
-                                         tooltip="Close the database, saving it if required",
-                                         func=self._raise_db_event, enabled=False))
-        db_menu.addSeparator()
-        db_menu.addAction(_create_action(self, DBAction.REFRESH, shortcut="F5", icon="view-refresh",
-                                         tooltip="Reload the exif data for the all the database paths",
-                                         func=self._raise_db_event, enabled=False))
-        db_menu.addAction(_create_action(self, DBAction.REFRESH_SELECTED, shortcut="Shift+F5", icon="view-refresh",
-                                         tooltip="Reload the exif data for the the selected database paths",
-                                         func=self._raise_db_event, enabled=False))
-        db_menu.addAction(_create_action(self, DBAction.RESET, icon="view-restore",
-                                         tooltip="Reset this database",
-                                         func=self._raise_db_event, enabled=False))
-        db_menu.addAction(_create_action(self, DBAction.BOOKMARK, icon="bookmark",
-                                         tooltip="Add or remove this database from favorites",
-                                         func=self._raise_db_event, enabled=False))
-        db_menu.addSeparator()
-
-        paths_menu = QMenu(self._MENU_DATABASE_PATHS, self)
-        paths_menu.setIcon(QIcon.fromTheme("database-paths"))
-
-        db_menu.addMenu(paths_menu)
-
-        db_menu.addSeparator()
-        db_menu.addAction(_create_action(self, DBAction.OPEN_DB, shortcut="Ctrl+D",
-                                         icon="database-open", func=self._raise_db_event,
-                                         tooltip="Open a non registered private database"))
-
-        history_menu = QMenu(self._MENU_DATABASE_HISTORY, self)
-        history_menu.setIcon(QIcon.fromTheme("folder-open-recent"))
-
-        bookmarks_menu = QMenu(self._MENU_DATABASE_BOOKMARKS, self)
-        bookmarks_menu.setIcon(QIcon.fromTheme("bookmark"))
-
-        db_menu.addSeparator()
-        db_menu.addMenu(history_menu)
-        db_menu.addMenu(bookmarks_menu)
-
-        return db_menu
-
-    def _add_path(self, menu: QMenu, path: str):
-        """
-        Appends a new path tho the given menu, if this path does not exist already
-        :param path: The path to add
-        :param menu: The menu to add the path to
-        """
-        # TODO: Test
-        count = len(menu.actions())
-        existing = _find_action(path, menu.actions())
-        if existing is not None:
-            app.logger.warning(f"{path} already exists in this database.")
-            return
-        menu.addAction(
-            _create_action(self, path, func=self._raise_paths_change, icon=views.get_mime_type_icon_name(path),
-                           shortcut=f"Ctrl+{count + 1}" if count < 9 else None, checked=True))
-
-    def _create_file_menu(self):
-        # TODO: Test
-        file_menu = QMenu("&File", self)
-        file_menu.addAction(_create_action(self, MediaLibAction.OPEN_FILE, shortcut="Ctrl+O",
-                                           func=self._raise_menu_event, icon="document-open",
-                                           tooltip="Open a file to view its exif data"))
-        file_menu.addAction(_create_action(self, MediaLibAction.OPEN_PATH, shortcut="Ctrl+D",
-                                           func=self._raise_menu_event,
-                                           tooltip="Open a directory to view info of all supported files in it",
-                                           icon="document-open-folder"))
-        file_menu.addSeparator()
-        file_menu.addAction(_create_action(self, MediaLibAction.SETTINGS, func=self._raise_menu_event,
-                                           shortcut="Ctrl+,", icon="preferences-system",
-                                           tooltip=f"Quit {app.__NAME__}"))
-        file_menu.addSeparator()
-        file_menu.addAction(_create_action(self, MediaLibAction.APP_EXIT, func=self._raise_menu_event,
-                                           shortcut="Ctrl+Q", icon="application-exit",
-                                           tooltip=f"Quit {app.__NAME__}"))
-        return file_menu
+        self._view_menu.shut_database()
+        self._db_menu.shut_database()
 
     def _create_window_menu(self, plugins: list):
         window_menu = QMenu("&Window", self)
@@ -349,35 +508,3 @@ class AppMenuBar(QMenuBar):
             window_menu.addAction(pl_action)
 
         return window_menu
-
-    def _create_help_menu(self):
-        # TODO: Test
-        help_menu = QMenu("&Help", self)
-        help_menu.addAction(_create_action(self, MediaLibAction.OPEN_GIT, self._raise_menu_event,
-                                           icon="folder-git", tooltip="Visit this project on GitHub"))
-        help_menu.addMenu(self._log_level_options.log_options_menu)
-        help_menu.addSeparator()
-        help_menu.addAction(_create_action(self, MediaLibAction.ABOUT, self._raise_menu_event, icon="help-about",
-                                           tooltip="About this application"))
-        return help_menu
-
-    def _raise_view_event(self, event):
-        self.view_changed.emit(ViewType[event])
-
-    def _raise_menu_event(self, action):
-        self.medialib_action.emit(MediaLibAction(action))
-
-    def _raise_paths_change(self, _):
-        paths = []
-        paths_menu = _find_action(self._MENU_DATABASE_PATHS, self.db_menu.actions()).menu()
-        for item in paths_menu.actions():
-            if item.isChecked():
-                paths.append(item.text())
-
-        self.paths_changed.emit(paths)
-
-    def _open_db_event(self, recent):
-        self.open_db_action.emit(recent)
-
-    def _raise_db_event(self, action):
-        self.database_action.emit(DBAction(action))

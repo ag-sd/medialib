@@ -11,6 +11,7 @@ TODO
 
 ## TODO
 ### Currently working on
+- Showing user-selected fields and field presets
 - Searching using DuckDB
 - Tests
 
@@ -24,7 +25,7 @@ TODO
   - Save database
     - Storing fingerprints for images, videos and music
     - Custom `exiftool` Formats
-    
+- Improve performance of views
 - Map view
 - Thumb view
 - Custom plugins per MimeType i.e Images: Dupe Finder
