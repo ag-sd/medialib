@@ -227,7 +227,7 @@ class Database:
         return key
 
     def _update_tags(self, _path):
-        current_tags = dict(self._tags)
+        current_tags = dict.fromkeys(self._tags)
         for entry in self._path_cache[self._create_path_key(_path)]:
             current_tags.update(dict.fromkeys(entry.keys()))
         self._tags = list(current_tags)
