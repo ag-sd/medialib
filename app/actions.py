@@ -2,9 +2,9 @@ import logging
 from enum import StrEnum
 from functools import partial
 
-from PyQt6.QtCore import pyqtSignal, QObject
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QAction, QIcon, QActionGroup
-from PyQt6.QtWidgets import QMenuBar, QMenu, QPushButton, QWidgetAction, QCheckBox, QWidget
+from PyQt6.QtWidgets import QMenuBar, QMenu, QWidgetAction, QCheckBox
 
 import app
 from app import views, appsettings
@@ -286,7 +286,7 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
                                        tooltip="Reload the exif data for the all the database paths",
                                        func=self._raise_db_event, enabled=False)
         self._selective_refresh = _create_action(self, DBAction.REFRESH_SELECTED, shortcut="Shift+F5",
-                                                 icon="view-refresh", func=self._raise_db_event, enabled=False,
+                                                 icon="view-refresh", func=self._selective_refresh_event, enabled=False,
                                                  tooltip="Reload the exif data for the the selected database paths")
         self._reset = _create_action(self, DBAction.RESET, icon="view-restore",
                                      tooltip="Reset this database",
@@ -348,6 +348,14 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
 
     def _raise_db_event(self, action):
         self.database_event.emit(DBAction(action), None)
+
+    def _selective_refresh_event(self, _):
+        actions = list(self._paths_menu.actions())
+        selected = []
+        for act in actions:
+            if act.isChecked():
+                selected.append(act.text())
+        self.database_event.emit(DBAction.REFRESH_SELECTED, selected)
 
 
 class HelpMenu(QMenu):
@@ -467,21 +475,6 @@ class AppMenuBar(QMenuBar, HasDatabaseDisplaySupport):
         if len(plugins) > 0:
             self.addMenu(self._create_window_menu(plugins))
         self.addMenu(self._help_menu)
-
-    def get_selected_db_paths(self):
-        """
-        Returns:
-            All the DB paths that are currently selected
-
-        """
-        paths_menu = _find_action(self._MENU_DATABASE_PATHS, self.db_menu.actions()).menu()
-        q = list(paths_menu.actions())
-        selected = []
-        while len(q) > 0:
-            action = q.pop(0)
-            if action.isChecked():
-                selected.append(action.text())
-        return selected
 
     def update_recents(self, recents: list):
         self._db_menu.update_recents(recents)
