@@ -57,6 +57,7 @@ class TestProperties(unittest.TestCase):
                 props.DB_TYPE: db.type,
                 props.DB_CREATED: db.created,
                 props.DB_UPDATED: db.updated,
+                props.DB_TAGS: []
             })
 
     @staticmethod

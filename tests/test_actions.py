@@ -4,6 +4,8 @@ import unittest
 class TestActions(unittest.TestCase):
     pass
 
+    # https://github.com/jmcgeheeiv/pyqttestexample/blob/master/src/MargaritaMixerTest.py
+
     # def test_create_action_missing_fields(self):
     #     i1 = actions._create_action(None, "Test1")
     #     self.assertTrue(i1.text() == "Test1")
