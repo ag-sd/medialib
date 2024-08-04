@@ -71,7 +71,7 @@ def _find_action(text, actions):
             q.extend(action.menu().actions())
 
 
-def _clear_menu(_menu: QMenu):
+def _clear_menu(_menu: QMenu | QActionGroup):
     """
     Removes all entries from a menu
     Args:
@@ -120,6 +120,7 @@ class ViewMenu(QMenu, HasDatabaseDisplaySupport):
     def shut_database(self):
         _clear_menu(self._view_menu_presets)
         _clear_menu(self._view_menu_all_fields)
+        _clear_menu(self._presets_group)
         self._hidden_tags = set()
         self._all_tags = []
         self._tag_checkboxes = {}
@@ -132,6 +133,8 @@ class ViewMenu(QMenu, HasDatabaseDisplaySupport):
         self._tag_checkboxes = {}
         self._view_menu_all_fields = QMenu("All Fields", self)
         self._view_menu_presets = QMenu("Preset Views", self)
+        self._presets_group = QActionGroup(self._view_menu_presets)
+        self._presets_group.setExclusive(True)
         self._init_default_menu()
 
     def _init_default_menu(self):
@@ -191,9 +194,11 @@ class ViewMenu(QMenu, HasDatabaseDisplaySupport):
         # Remove fields from the presets that are not in this database
         filtered_fields = [f for f in fields if f in database.tags]
         if len(filtered_fields) > 0:
-            action = _create_action(self._view_menu_presets, name, self._preset_clicked_event, tooltip=tooltip)
+            action = _create_action(self._view_menu_presets, name, self._preset_clicked_event, tooltip=tooltip,
+                                    checked=False)
             action.setProperty(self._PROP_FIELD_ID, filtered_fields)
             self._view_menu_presets.addAction(action)
+            self._presets_group.addAction(action)
         else:
             app.logger.debug(f"{name} will not be shown as none of the fields are in this database")
 
@@ -270,6 +275,20 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
 
         _clear_menu(self._paths_menu)
 
+    @property
+    def selected_paths(self) -> list:
+        paths = []
+        for item in self._paths_menu.actions():
+            if item.isChecked():
+                paths.append(item.text())
+        return paths
+
+    def update_recents(self, recents: list):
+        self._update_db_list(self._history_menu, sub_items=recents, icon_name="folder-open-recent")
+
+    def update_bookmarks(self, bookmarks: list):
+        self._update_db_list(self._bookmarks_menu, sub_items=bookmarks, icon_name="bookmarks")
+
     def __init__(self, parent):
         super().__init__("&Database", parent=parent)
 
@@ -283,11 +302,12 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
                                        tooltip="Close the database, saving it if required",
                                        func=self._raise_db_event, enabled=False)
         self._refresh = _create_action(self, DBAction.REFRESH, shortcut="F5", icon="view-refresh",
-                                       tooltip="Reload the exif data for the all the database paths",
+                                       tooltip="Reload the exif data for the all the database paths from disk",
                                        func=self._raise_db_event, enabled=False)
         self._selective_refresh = _create_action(self, DBAction.REFRESH_SELECTED, shortcut="Shift+F5",
                                                  icon="view-refresh", func=self._selective_refresh_event, enabled=False,
-                                                 tooltip="Reload the exif data for the the selected database paths")
+                                                 tooltip="Reload the exif data for the the selected "
+                                                         "database paths from disk")
         self._reset = _create_action(self, DBAction.RESET, icon="view-restore",
                                      tooltip="Reset this database",
                                      func=self._raise_db_event, enabled=False)
@@ -306,13 +326,6 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
         self._bookmarks_menu.setIcon(QIcon.fromTheme("bookmark"))
 
         self._create_menu()
-
-    def update_recents(self, recents: list):
-        self._update_db_list(self._history_menu, sub_items=recents,
-                             icon_name="folder-open-recent")
-
-    def update_bookmarks(self, bookmarks: list):
-        self._update_db_list(self._bookmarks_menu, sub_items=bookmarks, icon_name="bookmarks")
 
     def _create_menu(self):
         self.addAction(self._save)
@@ -337,11 +350,7 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
             menu.addAction(_create_action(self, path, func=self._open_db_event, icon=icon_name))
 
     def _raise_paths_change_event(self, _):
-        paths = []
-        for item in self._paths_menu.actions():
-            if item.isChecked():
-                paths.append(item.text())
-        self.database_event.emit(DBAction.PATH_CHANGE, paths)
+        self.database_event.emit(DBAction.PATH_CHANGE, self.selected_paths)
 
     def _open_db_event(self, db_to_open):
         self.database_event.emit(DBAction.OPEN_DB, db_to_open)
@@ -350,12 +359,7 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
         self.database_event.emit(DBAction(action), None)
 
     def _selective_refresh_event(self, _):
-        actions = list(self._paths_menu.actions())
-        selected = []
-        for act in actions:
-            if act.isChecked():
-                selected.append(act.text())
-        self.database_event.emit(DBAction.REFRESH_SELECTED, selected)
+        self.database_event.emit(DBAction.REFRESH_SELECTED, self.selected_paths)
 
 
 class HelpMenu(QMenu):
@@ -364,12 +368,13 @@ class HelpMenu(QMenu):
     LOG_DEBUG = "DEBUG"
     LOG_INFO = "INFO"
     LOG_WARNING = "WARNING"
-    LOG_EXCEPTION = "EXCEPTION"
+    LOG_ERROR = "ERROR"
 
     def __init__(self, parent):
         super().__init__("&Help", parent)
         self._log_menu = QMenu("Set Application Log Level", parent)
         self._log_menu.setIcon(QIcon.fromTheme("text-x-generic"))
+        self._log_level_group = QActionGroup(self._log_menu)
 
         self._debug = _create_action(parent, self.LOG_DEBUG, self._log_level_changed,
                                      tooltip="Display all application logs", checked=False)
@@ -377,14 +382,12 @@ class HelpMenu(QMenu):
                                     tooltip="Do not show debug logs", checked=False)
         self._warning = _create_action(parent, self.LOG_WARNING, self._log_level_changed,
                                        tooltip="Display warnings and errors only", checked=False)
-        self._error = _create_action(parent, self.LOG_EXCEPTION, self._log_level_changed,
+        self._error = _create_action(parent, self.LOG_ERROR, self._log_level_changed,
                                      tooltip="Only show application errors", checked=False)
         self._create_menu()
 
     def _create_menu(self):
-        self._log_level_group = QActionGroup(self._log_menu)
         self._log_level_group.setExclusive(True)
-
         self._log_level_group.addAction(self._debug)
         self._log_level_group.addAction(self._info)
         self._log_level_group.addAction(self._warning)
@@ -405,7 +408,7 @@ class HelpMenu(QMenu):
 
     def _log_level_changed(self, log_level):
         match log_level:
-            case self.LOG_EXCEPTION:
+            case self.LOG_ERROR:
                 self.set_application_log_level(logging.ERROR)
             case self.LOG_DEBUG:
                 self.set_application_log_level(logging.DEBUG)
