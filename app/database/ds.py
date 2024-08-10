@@ -2,6 +2,7 @@ import configparser
 import datetime
 import json
 from abc import abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 
 import app
@@ -11,14 +12,27 @@ from app.database.props import DBType
 from app.views import ViewType
 
 
-class DatabaseNotFoundException(Exception):
+class DatabaseNotFoundError(Exception):
     def __init__(self):
         super().__init__("This database was not found!")
 
 
-class CorruptedDatabaseException(Exception):
+class CorruptedDatabaseError(Exception):
     def __init__(self):
         super().__init__("This database is corrupt and cannot be opened. See logs for more details")
+
+
+class DatabaseQueryError(Exception):
+    def __init__(self, root_exception: Exception):
+        super().__init__(f"Query failed. Inner error is:\n {root_exception}")
+
+
+@dataclass
+class SearchResults:
+    data: list
+    columns: list
+    query: str
+    searched_paths: list
 
 
 class Database:
@@ -87,6 +101,37 @@ class Database:
         app.logger.debug("Clearing Cache...")
         self._path_cache = {}
 
+    def set_name(self, name):
+        if name is None or name == "" or name == props.DB_DEFAULT_NAME:
+            raise ValueError("Invalid name supplied")
+        self._database_name = name
+
+    def query(self, query: str, query_paths: list):
+        """
+        Queries the database with the supplied query. The supplied query should be in ANSI SQL
+        Args:
+            query: The Query to run
+            query_paths: The paths on which to run this query
+
+        Returns:
+            The data that matches this query
+
+        """
+        if self.type == DBType.IN_MEMORY:
+            raise DatabaseQueryError(TypeError("Cannot query an in-memory database"))
+
+        app.logger.debug(f"Querying DB index with the following query: {query}")
+        # Convert the paths to path_keys
+        path_keys = set()
+        for path in query_paths:
+            path_keys.add(str(self._cache_file_path(self._create_path_key(path))))
+
+        try:
+            results, columns = indexer.query_index(self.save_path, query, list(path_keys))
+            return SearchResults(data=results, columns=columns, query=query, searched_paths=query_paths)
+        except Exception as e:
+            raise DatabaseQueryError(root_exception=e)
+
     def data(self, path: str, refresh=False):
         """
         Checks if the path is in cache, if present, returns its data. if missing, and this is an in memory database,
@@ -115,7 +160,7 @@ class Database:
                 # Fetch data from disk, add to cache and return it
                 # If this path is not present in the db, it's a new path, so add it to the database and
                 # Return its content
-                cache_file = Path(self.save_path) / key
+                cache_file = self._cache_file_path(key)
                 if not cache_file.exists() or (cache_file.exists() and refresh is True):
                     if not cache_file.exists():
                         app.logger.warning(f"{path} was not found in this database! Will fetch it now...")
@@ -124,9 +169,9 @@ class Database:
                 else:
                     app.logger.debug(f"Fetching data from disk for path {key}")
                     data = cache_file.read_text(encoding=ExifInfo.DATA_ENCODING)
-                if data == "":
-                    app.logger.warning(f"{key} has no exif data.")
-                    data = "[]"
+            if data == "":
+                app.logger.warning(f"{key} has no exif data.")
+                data = "[]"
             self._path_cache[key] = json.loads(data)
             self._update_tags(path)
 
@@ -146,18 +191,18 @@ class Database:
         Saves this database to the disk based on its configuration
         """
         # Save path must exist
-        if save_path is None:
-            save_path = self.save_path
-
-        if not save_path:
+        if save_path is None and self.save_path is None:
             raise ValueError("Database is missing a valid save path")
+
         # Save the save path
-        self._save_path = save_path
+        self._save_path = save_path if save_path is not None else self.save_path
         p_save_path = Path(self.save_path)
         # Create the save path
         p_save_path.mkdir(parents=True, exist_ok=True)
         # Capture DB Name
-        self._database_name = p_save_path.name
+        self._database_name = p_save_path.name if (self._database_name is None or
+                                                   self._database_name == props.DB_DEFAULT_NAME) else (
+            self._database_name)
 
         # Validate database
         self._validate_database(self)
@@ -169,11 +214,11 @@ class Database:
         app.logger.debug(f"Starting to save database {self}")
         # Blow the cache to force subsequent reloads from disk
         self.clear_cache()
+        # Set DB Type
+        self._type = db_type
         # Iterate through each path in the database and write its metadata to disk
         for path in self.paths:
             self.data(path, refresh=True)
-        # Set DB Type
-        self._type = db_type
         # Write Metadata to the database
         app.logger.info("Writing Metadata...")
         Properties.write(self)
@@ -226,6 +271,9 @@ class Database:
         key = f"{'__'.join(path_parts[1:])}.{ViewType.JSON.name.lower()}"
         return key
 
+    def _cache_file_path(self, key: str) -> Path:
+        return Path(self.save_path) / key
+
     def _update_tags(self, _path):
         current_tags = dict.fromkeys(self._tags)
         for entry in self._path_cache[self._create_path_key(_path)]:
@@ -252,7 +300,7 @@ class Database:
         """
         db_path = Path(database_path)
         if not db_path.exists():
-            raise DatabaseNotFoundException
+            raise DatabaseNotFoundError
 
         return cls(**Properties.as_dictionary(database_path))
 
@@ -267,7 +315,7 @@ class Properties:
         """
         config_file = Properties._get_config_file(database_path)
         if not Path(config_file).exists():
-            raise CorruptedDatabaseException
+            raise CorruptedDatabaseError
         config = configparser.ConfigParser()
         config.read(Properties._get_config_file(database_path))
         Properties._test_version(config)

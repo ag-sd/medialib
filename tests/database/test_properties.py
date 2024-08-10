@@ -1,16 +1,16 @@
 import tempfile
 import unittest
-from pathlib import Path
 
 from app.database import props
-from app.database.ds import Database, Properties
+from app.database.ds import Database, Properties, CorruptedDatabaseError
+from tests.database import test_utils
 
 
 class TestProperties(unittest.TestCase):
 
     def test_write_db_new_ini_file(self):
         with tempfile.TemporaryDirectory() as db_path:
-            db = Database.create_in_memory(paths=TestProperties.get_temp_files(2), save_path=db_path)
+            db = Database.create_in_memory(paths=test_utils.get_temp_files(2), save_path=db_path)
             Properties.write(db)
 
             p_db = Properties.as_database(db_path)
@@ -24,14 +24,14 @@ class TestProperties(unittest.TestCase):
 
     def test_write_db_existing_ini_file(self):
         with tempfile.TemporaryDirectory() as db_path:
-            db = Database.create_in_memory(paths=TestProperties.get_temp_files(2), save_path=db_path)
+            db = Database.create_in_memory(paths=test_utils.get_temp_files(2), save_path=db_path)
             Properties.write(db)
 
             Properties.write(db)
 
     def test_read_to_database(self):
         with tempfile.TemporaryDirectory() as db_path:
-            db = Database.create_in_memory(paths=TestProperties.get_temp_files(2), save_path=db_path)
+            db = Database.create_in_memory(paths=test_utils.get_temp_files(2), save_path=db_path)
             Properties.write(db)
 
             p_db = Properties.as_database(db_path)
@@ -45,7 +45,7 @@ class TestProperties(unittest.TestCase):
 
     def test_read_to_dict(self):
         with tempfile.TemporaryDirectory() as db_path:
-            db = Database.create_in_memory(paths=TestProperties.get_temp_files(2), save_path=db_path)
+            db = Database.create_in_memory(paths=test_utils.get_temp_files(2), save_path=db_path)
             Properties.write(db)
 
             p_db = Properties.as_dictionary(db_path)
@@ -60,11 +60,14 @@ class TestProperties(unittest.TestCase):
                 props.DB_TAGS: []
             })
 
-    @staticmethod
-    def get_temp_files(count) -> list:
-        files = []
-        for i in range(count):
-            tmp = Path(tempfile.NamedTemporaryFile().name)
-            tmp.touch()
-            files.append(str(tmp))
-        return files
+    def test_load_invalid_database(self):
+        with tempfile.TemporaryDirectory() as db_path:
+            try:
+                Properties.as_database(db_path)
+                self.fail("No database exists at this path, thus the loader should raise an error")
+            except CorruptedDatabaseError as e:
+                self.assertEqual(str(e), "This database is corrupt and cannot be opened. "
+                                         "See logs for more details")
+                pass
+
+
