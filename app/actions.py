@@ -97,10 +97,12 @@ class DBAction(StrEnum):
     REFRESH = "Refresh"
     REFRESH_SELECTED = "Refresh Selected Paths"
     RESET = "Reset"
+    BOOKMARK = "Add or Remove Favorite"
     OPEN_DB = "Open Database..."
     SHUT_DB = "Close Database"
-    BOOKMARK = "Add or Remove Favorite"
     PATH_CHANGE = "Path Change"
+    OPEN_SEARCH = "Search this Database"
+    SHUT_SEARCH = "Close Search"
 
 
 class ViewAction(StrEnum):
@@ -125,6 +127,12 @@ class ViewMenu(QMenu, HasDatabaseDisplaySupport):
         self._all_tags = []
         self._tag_checkboxes = {}
 
+    def update_available_views(self, available_views: list):
+        for action in self.actions():
+            if action.text() in available_views:
+                if action.property("view-action") is not None:
+                    action.setEnabled(action.text() in available_views)
+
     def __init__(self, parent):
         super().__init__("&View", parent=parent)
         self._combo_stylesheet = f"padding: {parent.fontMetrics().horizontalAdvance('  ')}px; text-align:left;"
@@ -139,8 +147,10 @@ class ViewMenu(QMenu, HasDatabaseDisplaySupport):
 
     def _init_default_menu(self):
         for i, v in enumerate(ViewType):
-            self.addAction(_create_action(self, v.name, func=self._raise_view_event, icon=v.icon,
-                                          shortcut=f"Alt+Shift+{i + 1}", tooltip=v.description))
+            view_action = _create_action(self, v.name, func=self._raise_view_event, icon=v.icon,
+                                         shortcut=f"Alt+Shift+{i + 1}", tooltip=v.description)
+            view_action.setProperty("view-action", True)
+            self.addAction(view_action)
 
         self.addSeparator()
 
@@ -256,10 +266,13 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
         self._selective_refresh.setEnabled(True)
         self._add_bookmark.setEnabled(not database.type == DBType.IN_MEMORY)
         self._shut_db.setEnabled(True)
+        self._open_search.setEnabled(not database.type == DBType.IN_MEMORY)
+        self._shut_search.setEnabled(False)
+        self._paths_menu.setEnabled(True)
 
         _clear_menu(self._paths_menu)
         for count, item in enumerate(database.paths):
-            self._paths_menu.addAction(_create_action(self, item, func=self._raise_paths_change_event,
+            self._paths_menu.addAction(_create_action(self, item, func=self._paths_change_event,
                                                       icon=views.get_mime_type_icon_name(item),
                                                       shortcut=f"Ctrl+{count + 1}" if count < 9 else None, checked=True)
                                        )
@@ -272,8 +285,14 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
         self._selective_refresh.setEnabled(False)
         self._add_bookmark.setEnabled(False)
         self._shut_db.setEnabled(False)
-
+        self._open_search.setEnabled(False)
+        self._shut_search.setEnabled(False)
         _clear_menu(self._paths_menu)
+        self._paths_menu.setEnabled(False)
+
+        # Raise Cleanup Events
+        self.database_event.emit(DBAction.PATH_CHANGE, [])
+        self.database_event.emit(DBAction.SHUT_SEARCH, None)
 
     @property
     def selected_paths(self) -> list:
@@ -294,28 +313,34 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
 
         self._save = _create_action(self, DBAction.SAVE, shortcut="Ctrl+S", icon="document-save",
                                     tooltip="Save the exif data of all open paths to the DB",
-                                    func=self._raise_db_event, enabled=False)
+                                    func=self._db_event, enabled=False)
         self._save_as = _create_action(self, DBAction.SAVE_AS, shortcut="Ctrl+Shift+S", icon="document-save-as",
                                        tooltip="Save the exif data of all open paths to the DB",
-                                       func=self._raise_db_event, enabled=False)
+                                       func=self._db_event, enabled=False)
         self._shut_db = _create_action(self, DBAction.SHUT_DB, shortcut="Ctrl+W", icon="document-close",
                                        tooltip="Close the database, saving it if required",
-                                       func=self._raise_db_event, enabled=False)
+                                       func=self._db_event, enabled=False)
+        self._shut_search = _create_action(self, DBAction.SHUT_SEARCH, shortcut="Ctrl+Shift+W", enabled=False,
+                                           tooltip="Close the search results and switch back to database browsing",
+                                           func=self._db_search_event, icon="view-close-symbolic")
+        self._open_search = _create_action(self, DBAction.OPEN_SEARCH, shortcut="F3", enabled=False,
+                                           tooltip="Start Searching this database using SQL statements",
+                                           func=self._db_search_event, icon="folder-saved-search")
         self._refresh = _create_action(self, DBAction.REFRESH, shortcut="F5", icon="view-refresh",
                                        tooltip="Reload the exif data for the all the database paths from disk",
-                                       func=self._raise_db_event, enabled=False)
+                                       func=self._db_event, enabled=False)
         self._selective_refresh = _create_action(self, DBAction.REFRESH_SELECTED, shortcut="Shift+F5",
                                                  icon="view-refresh", func=self._selective_refresh_event, enabled=False,
                                                  tooltip="Reload the exif data for the the selected "
                                                          "database paths from disk")
         self._reset = _create_action(self, DBAction.RESET, icon="view-restore",
                                      tooltip="Reset this database",
-                                     func=self._raise_db_event, enabled=False)
+                                     func=self._db_event, enabled=False)
         self._add_bookmark = _create_action(self, DBAction.BOOKMARK, icon="bookmark",
                                             tooltip="Add or remove this database from favorites",
-                                            func=self._raise_db_event, enabled=False)
+                                            func=self._db_event, enabled=False)
         self._open_db = _create_action(self, DBAction.OPEN_DB, shortcut="Ctrl+D",
-                                       icon="database-open", func=self._raise_db_event,
+                                       icon="database-open", func=self._db_event,
                                        tooltip="Open a non registered private database")
 
         self._paths_menu = QMenu(self._MENU_DB_PATHS, self)
@@ -331,6 +356,9 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
         self.addAction(self._save)
         self.addAction(self._save_as)
         self.addAction(self._shut_db)
+        self.addSeparator()
+        self.addAction(self._open_search)
+        self.addAction(self._shut_search)
         self.addSeparator()
         self.addAction(self._refresh)
         self.addAction(self._selective_refresh)
@@ -349,17 +377,32 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
         for path in sub_items:
             menu.addAction(_create_action(self, path, func=self._open_db_event, icon=icon_name))
 
-    def _raise_paths_change_event(self, _):
+    def _paths_change_event(self, _):
         self.database_event.emit(DBAction.PATH_CHANGE, self.selected_paths)
 
     def _open_db_event(self, db_to_open):
         self.database_event.emit(DBAction.OPEN_DB, db_to_open)
 
-    def _raise_db_event(self, action):
+    def _db_event(self, action):
         self.database_event.emit(DBAction(action), None)
 
     def _selective_refresh_event(self, _):
         self.database_event.emit(DBAction.REFRESH_SELECTED, self.selected_paths)
+
+    def _db_search_event(self, event):
+        match event:
+            case DBAction.OPEN_SEARCH:
+                self.database_event.emit(DBAction.OPEN_SEARCH, self.selected_paths)
+                self._set_searching_available(False)
+            case DBAction.SHUT_SEARCH:
+                self.database_event.emit(DBAction.SHUT_SEARCH, self.selected_paths)
+                self._set_searching_available(True)
+            case _:
+                app.logger.warning(f"Unexpected event {event} received")
+
+    def _set_searching_available(self, value: bool):
+        self._open_search.setEnabled(value)
+        self._shut_search.setEnabled(not value)
 
 
 class HelpMenu(QMenu):
@@ -492,6 +535,12 @@ class AppMenuBar(QMenuBar, HasDatabaseDisplaySupport):
     def shut_database(self):
         self._view_menu.shut_database()
         self._db_menu.shut_database()
+
+    def get_selected_database_paths(self):
+        return self._db_menu.selected_paths
+
+    def update_available_views(self, available_views: list):
+        self._view_menu.update_available_views(available_views)
 
     def _create_window_menu(self, plugins: list):
         window_menu = QMenu("&Window", self)

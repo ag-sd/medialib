@@ -4,7 +4,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QUrl, QCoreApplication
+from PyQt6.QtCore import QUrl, QCoreApplication, Qt
 from PyQt6.QtGui import QDesktopServices, QIcon
 from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, QLabel, QMessageBox, QFileDialog, \
     QProgressBar, QDockWidget
@@ -14,8 +14,10 @@ import apputils
 from app import appsettings
 from app.actions import AppMenuBar, MediaLibAction, DBAction, ViewAction
 from app.database import exifinfo
-from app.database.ds import Database, DatabaseNotFoundException, CorruptedDatabaseException, HasDatabaseDisplaySupport
-from app.views import ViewType, TableView, ModelData
+from app.database.ds import Database, DatabaseNotFoundError, CorruptedDatabaseError, HasDatabaseDisplaySupport, \
+    DatabaseQueryError
+from app.views import ViewType, ModelData, ModelManager
+from app.widgets import search
 
 
 class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
@@ -46,6 +48,9 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
         self.statusBar().addPermanentWidget(self.current_view_details)
 
         self._plugins = self._init_plugins()
+
+        # Search
+        self._sql_search_widget = None
 
         # Menu Bar
         app.logger.debug("Configure Menubar ...")
@@ -87,10 +92,12 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
         # Load the first entry from the database
         if self.database is not None:
             self.show_database(self.database)
+        app.logger.debug("Startup tasks completed. Ready.")
 
     def closeEvent(self, event):
         if self.database:
             self.shut_database()
+        app.logger.debug(f"{app.__APP_NAME__} is exiting. Goodbye!")
         super().closeEvent(event)
 
     def show_database(self, database: Database):
@@ -123,7 +130,6 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
                     plugin.shut_database()
             # Update display
             self.setWindowTitle(f"{app.__APP_NAME__}")
-            self._paths_changed([])
             self.database = None
 
     def _db_event(self, db_action, event_args):
@@ -190,6 +196,21 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
             case DBAction.PATH_CHANGE:
                 self._paths_changed(_paths=event_args)
 
+            case DBAction.OPEN_SEARCH:
+                self._sql_search_widget = search.QueryWidget(self)
+                self._sql_search_widget.query_event.connect(self._sql_search_widget__query_event)
+                self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._sql_search_widget)
+                self._sql_search_widget.setVisible(True)
+                self._sql_search_widget.setFocus()
+
+            case DBAction.SHUT_SEARCH:
+                if self._sql_search_widget is not None:
+                    self._sql_search_widget.shut_database()
+                    self._sql_search_widget.query_event.disconnect()
+                    self.removeDockWidget(self._sql_search_widget)
+                    self._sql_search_widget = None
+                    self._paths_changed(_paths=self.menubar.get_selected_database_paths())
+
             case _:
                 app.logger.warning(f"Not Implemented: {db_action}")
 
@@ -232,11 +253,23 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
             plugin_widget.setVisible(False)
             self.addDockWidget(area, plugin_widget)
             plugins.append(plugin_widget)
-        pass
-        # _init_plugin(search.SimpleSearch(self), Qt.DockWidgetArea.TopDockWidgetArea)
-        # _init_plugin(search.QueryWindow(self), Qt.DockWidgetArea.BottomDockWidgetArea)
+
+        simple_find = search.FindWidget(self)
+        simple_find.find_event.connect(self._plugin_simple_find__find_event)
+        _init_plugin(simple_find, Qt.DockWidgetArea.TopDockWidgetArea)
 
         return plugins
+
+    def _plugin_simple_find__find_event(self, text):
+        if isinstance(self.current_view, ModelManager):
+            app.logger.debug(f"Finding text {text}")
+            self.current_view.find_text(text)
+
+    def _sql_search_widget__query_event(self, query):
+        app.logger.debug("Searching database with paths provided")
+        results = self.database.query(query, self.menubar.get_selected_database_paths())
+        data = ModelData(data=results.data, path="Search Results")
+        self._display_model_data([data], results.searched_paths, results.columns)
 
     def _refresh_paths(self, paths):
         self.database.clear_cache()
@@ -252,21 +285,23 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
             appsettings.set_recently_opened_databases(recents)
             self.menubar.update_recents(recents)
 
-        except (DatabaseNotFoundException, CorruptedDatabaseException) as e:
+        except (DatabaseNotFoundError, CorruptedDatabaseError) as e:
             apputils.show_exception(self, e)
 
     def _paths_changed(self, _paths):
+        app.logger.debug(f"Selection changed to {_paths}")
+        model_data = []
         try:
-            app.logger.debug(f"Selection changed to {_paths}")
-            model_data = []
             for path in _paths:
                 self._do_work_in_thread(self.database.data, {"path": str(path)},
                                         title=f"Loading {len(_paths)} paths",
                                         success_msg=f"{len(_paths)} paths were loaded successfully")
                 # Data is added to cache, so pick it up from cache
-                data = ModelData(json=self.database.data(path=str(path)), path=path)
+                data = ModelData(data=self.database.data(path=str(path)), path=path)
                 model_data.append(data)
             self._display_model_data(model_data, _paths, self.database.tags)
+        except DatabaseQueryError as d:
+            apputils.show_exception(self, d)
         except Exception as exception:
             apputils.show_exception(self, exception)
 
@@ -341,10 +376,6 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
         self.statusBar().showMessage(success_msg, 5000)
         app.logger.info(f"THREAD:{work_thread.ident} : Work completed : {success_msg}")
 
-    def _search_text_entered(self, search_context):
-        if isinstance(self.current_view, TableView):
-            self.current_view.search(search_context)
-
 
 if __name__ == '__main__':
     # Test if Exiftool is installed
@@ -370,5 +401,6 @@ if __name__ == '__main__':
 
     # Prepare and launch GUI
     application = QApplication(sys.argv)
+    app.logger.debug(f"{app.__APP_NAME__} is starting up")
     _ = MediaLibApp(args)
     sys.exit(application.exec())

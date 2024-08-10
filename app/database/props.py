@@ -12,6 +12,7 @@ S_VERSION = "version"
 PROPERTIES_FILE = "database"
 
 DB_INDEX_FILE = "duck.db"
+DB_INDEX_NAME = "database_index"
 DB_SAVE_PATH = "save_path"
 DB_PATHS = "paths"
 DB_TYPE = "db_type"

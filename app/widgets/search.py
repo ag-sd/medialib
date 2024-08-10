@@ -1,24 +1,26 @@
-import sys
+from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QTimer
+from PyQt6.QtGui import QIcon, QTextCursor, QFontDatabase
+from PyQt6.QtWidgets import QTextEdit, QPushButton, QDialogButtonBox, \
+    QDockWidget, QCompleter, QLineEdit
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon, QTextCursor
-from PyQt6.QtWidgets import QApplication, QTextEdit, QHBoxLayout, QVBoxLayout, QPushButton, QDialogButtonBox, \
-    QDockWidget, QWidget, QCheckBox, QCompleter, QLineEdit
-
+import app
 from app.database.ds import Database, HasDatabaseDisplaySupport
 from app.widgets.windowinfo import WindowInfo
 
 
 class AutoCompletionTextEdit(QTextEdit):
+    # https://doc.qt.io/qt-6/qtwidgets-tools-customcompleter-example.html
 
     def __init__(self, parent):
         super().__init__(parent=parent)
         self._completer = None
+        self.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
 
     def set_completer(self, _completer):
         if self._completer:
             self._completer.disconnect(self)
         if not _completer:
+            self._completer = None
             return
 
         _completer.setWidget(self)
@@ -26,6 +28,9 @@ class AutoCompletionTextEdit(QTextEdit):
         _completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self._completer = _completer
         self._completer.activated.connect(self.insert_completion)
+
+    def remove_completer(self):
+        self._completer = None
 
     def insert_completion(self, completion):
         tc = self.textCursor()
@@ -90,50 +95,80 @@ class AutoCompletionTextEdit(QTextEdit):
         self._completer.complete(cr)
 
 
-class QueryWindow(QDockWidget, WindowInfo, HasDatabaseDisplaySupport):
-    _DB_LABEL_TEXT = "FROM DATABASE {} WHERE"
+class FindWidget(QDockWidget, WindowInfo):
+
+    find_event = pyqtSignal(str)
+
+    def __init__(self, parent):
+        super().__init__(parent=parent)
+        self.setWindowTitle("Find")
+        self._find_text = QLineEdit(self)
+        self._find_text.setPlaceholderText("Find: Enter your text here")
+        self._find_text.installEventFilter(self)
+        self._find_text.textChanged.connect(self._text_changed)
+        self._find_text.setStyleSheet("padding: 3px")
+
+        self._backoff_timer = QTimer()
+        self._backoff_timer.setSingleShot(True)
+        self._backoff_timer.timeout.connect(self.trigger_find_request)
+
+        self.setTitleBarWidget(self._find_text)
+
+    @property
+    def statustip(self):
+        return "Find items in the current view"
+
+    @property
+    def icon(self):
+        return QIcon.fromTheme("folder-saved-search")
+
+    @property
+    def shortcut(self):
+        return "Ctrl+F"
+
+    def _text_changed(self):
+        # Backoff triggering any events for 500ms after the user started typing
+        self._backoff_timer.start(500)
+
+    def trigger_find_request(self):
+        self.find_event.emit(self._find_text.text())
+
+    def eventFilter(self, source, event):
+        if source is self._find_text:
+            if event.type() == QEvent.Type.Show:
+                self._find_text.setFocus()
+            elif event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
+                self._find_text.clear()
+                self.setVisible(False)
+        return super().eventFilter(source, event)
+
+
+class QueryWidget(QDockWidget, WindowInfo, HasDatabaseDisplaySupport):
+
+    query_event = pyqtSignal(str)
 
     def __init__(self, parent):
         super().__init__(parent=parent)
         self._query_text = AutoCompletionTextEdit(parent=self)
         self.run_button = QPushButton(parent=self, text="Run", icon=QIcon.fromTheme("media-playback-start"))
-        self._search_text = QLineEdit(self)
-        self._search_mode = QCheckBox(self)
-        self._layout = QVBoxLayout()
-        self._advanced_search = QWidget(self)
-
         self._init_ui()
         self.shut_database()
 
     def _init_ui(self):
-
+        self.setWindowTitle("SQL Search")
         self.run_button.setShortcut("F9")
         exec_buttons = QDialogButtonBox(Qt.Orientation.Horizontal, self)
         exec_buttons.addButton(QDialogButtonBox.StandardButton.Reset)
         exec_buttons.addButton(self.run_button, QDialogButtonBox.ButtonRole.AcceptRole)
         exec_buttons.clicked.connect(self._clicked)
-
-        self._search_mode.setText("Advanced Search")
-        self._search_mode.clicked.connect(self._search_mode_changed)
-
-        adv_layout = QVBoxLayout()
-        adv_layout.setContentsMargins(2, 2, 2, 2)
-        adv_layout.addWidget(self._query_text)
-        adv_layout.addWidget(exec_buttons)
-        self._advanced_search.setLayout(adv_layout)
-
-        self._layout.addWidget(self._search_text)
-
-        layout = QHBoxLayout()
-        layout.addWidget(self._search_mode)
-        layout.addLayout(self._layout)
-        layout_container = QWidget()
-        layout_container.setLayout(layout)
-        self.setWidget(layout_container)
+        self._query_text.setPlaceholderText("Search this database using SQL statements\n"
+                                            "Ex: Select * from database where 1=1")
+        self.setTitleBarWidget(exec_buttons)
+        self.setWidget(self._query_text)
 
     @property
     def statustip(self):
-        return "Search the database using SQL statements"
+        return "Search this database using SQL statements"
 
     @property
     def icon(self):
@@ -143,60 +178,48 @@ class QueryWindow(QDockWidget, WindowInfo, HasDatabaseDisplaySupport):
     def shortcut(self):
         return "F3"
 
-    def _search_mode_changed(self):
-        if self._search_mode.isChecked():
-            self._layout.replaceWidget(self._search_text, self._advanced_search)
-        else:
-            self._layout.replaceWidget(self._advanced_search, self._search_text)
+    @property
+    def query(self):
+        return self._query_text.toPlainText()
 
     def show_database(self, database: Database):
-        self.setWindowTitle(f"Search : {database.name}")
-        self._search_text.clear()
         self._query_text.clear()
+        completer = QCompleter(database.tags, self)
+        self._query_text.set_completer(completer)
 
     def shut_database(self):
-        self.setWindowTitle("Search")
-        self._search_text.clear()
         self._query_text.clear()
+        self._query_text.remove_completer()
+
+    def hasFocus(self):
+        self._query_text.setFocus()
 
     def _clicked(self, btn):
-        print(btn == self.run_button)
         if btn == self.run_button:
-            print("Will validate and run query")
+            text = self._query_text.toPlainText()
+            if text is not "":
+                self.query_event.emit(text)
+            else:
+                app.logger.error("Invalid query will not be sent to the database")
         elif btn.text() == QDialogButtonBox.StandardButton.Reset.name:
             self._query_text.clear()
-            for action in self._field_menu.actions():
-                if action.isChecked():
-                    action.setChecked(False)
         else:
-            print("Unknown Action")
+            app.logger.warning(f"Unknown Action {btn.text()}")
 
-    def _process_menu_selections(self):
-        selected = []
-        for item in self._field_menu.actions():
-            if item.isChecked():
-                selected.append(item.text())
-        if len(selected) == len(self._field_menu.actions()):
-            text = "*"
-        else:
-            text = ", ".join(selected)
-
-        self._field_selector.setText(text)
-
-
-if __name__ == '__main__':
-    app = QApplication([])
-    ex = QueryWindow(parent=None)
-    db = Database.open_db("/mnt/documents/dev/testing/07-24-Test-Images/")
-    ex.show_database(db)
-    # ex.addItems(["a", "b", "c", "d"])
-    # lay = QVBoxLayout()
-    # for j in range(8):
-    #     label = QLabel("This is label # {}".format(j))
-    #     label.setAlignment(Qt.AlignCenter)
-    #     lay.addWidget(label)
-    # w = QWidget()
-    # w.setLayout(lay)
-    # ex.set_content_widget(w)
-    ex.show()
-    sys.exit(app.exec())
+#
+# if __name__ == '__main__':
+#     app = QApplication([])
+#     ex = QueryWidget(parent=None)
+#     # db = Database.open_db("/mnt/documents/dev/testing/07-24-Test-Images/")
+#     # ex.show_database(db)
+#     # ex.addItems(["a", "b", "c", "d"])
+#     # lay = QVBoxLayout()
+#     # for j in range(8):
+#     #     label = QLabel("This is label # {}".format(j))
+#     #     label.setAlignment(Qt.AlignCenter)
+#     #     lay.addWidget(label)
+#     # w = QWidget()
+#     # w.setLayout(lay)
+#     # ex.set_content_widget(w)
+#     ex.show()
+#     sys.exit(app.exec())

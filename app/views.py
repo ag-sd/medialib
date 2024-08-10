@@ -32,27 +32,9 @@ def get_mime_type_icon(mime_type_icon_name: str):
     return _MIME_ICON_CACHE[mime_type_icon_name]
 
 
-# class View:
-#     def foo(self):
-#         print("I am called")
-
-# https://www.qtcentre.org/threads/27005-QTextEdit-find-all
-# class TextView(QTextEdit):
-#     def __init__(self, str_data: str):
-#         super().__init__()
-#         self.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
-#         self.setStyleSheet("QTextEdit{background: #665c54; color: #FBF1C7; font-size: 11.5px;}")
-#         self.setText(str_data)
-
-
-# class HtmlView(QTextEdit):
-#     def __init__(self, html_str_data: str):
-#         super().__init__()
-#         self.setHtml(html_str_data)
-
 @dataclass
 class ModelData:
-    json: list
+    data: list
     path: str
 
 
@@ -65,9 +47,10 @@ class ModelManager:
     def set_model(self, model_data: list, fields: list):
         raise NotImplemented
 
-    def search(self, search_context):
-        re = QRegularExpression(search_context["text"], QRegularExpression.PatternOption.CaseInsensitiveOption)
-        self._proxy_model.setFilterRegularExpression(re)
+    def find_text(self, text):
+        re = QRegularExpression(text, QRegularExpression.PatternOption.CaseInsensitiveOption)
+        if self._proxy_model:
+            self._proxy_model.setFilterRegularExpression(re)
 
     def _create_proxy_model(self, main_model):
         self._proxy_model = QSortFilterProxyModel(self)
@@ -89,7 +72,7 @@ class JsonView(QTreeView, ModelManager):
         p_model.setHeaderData(0, Qt.Orientation.Horizontal, "Key")
         p_model.setHeaderData(1, Qt.Orientation.Horizontal, "Data")
         for data in model_data:
-            self._build(p_model.invisibleRootItem(), data.path, data.json, set(fields))
+            self._build(p_model.invisibleRootItem(), data.path, data.data, set(fields))
         self.setModel(self._create_proxy_model(p_model))
         self.expandAll()
         self.resizeColumnToContents(0)
@@ -135,7 +118,7 @@ class TableView(QTableView, ModelManager):
             self._orientation = self._orientation(model_data)
 
             for data in model_data:
-                for entry in data.json:
+                for entry in data.data:
                     self._exif_data.append(entry)
 
         @property
@@ -198,7 +181,7 @@ class TableView(QTableView, ModelManager):
         @staticmethod
         def _orientation(model_data: list) -> Qt.Orientation:
             if len(model_data) == 1:
-                if len(model_data[0].json) == 1:
+                if len(model_data[0].data) == 1:
                     app.logger.debug("Displaying in Vertical Mode")
                     return Qt.Orientation.Vertical
             app.logger.debug("Displaying in Horizontal Mode")
