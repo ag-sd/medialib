@@ -115,15 +115,15 @@ class FindWidget(QDockWidget, WindowInfo):
         self.setTitleBarWidget(self._find_text)
 
     @property
-    def statustip(self):
+    def statustip(self) -> str:
         return "Find items in the current view"
 
     @property
-    def icon(self):
+    def icon(self) -> QIcon:
         return QIcon.fromTheme("folder-saved-search")
 
     @property
-    def shortcut(self):
+    def shortcut(self) -> str:
         return "Ctrl+F"
 
     def _text_changed(self):
@@ -150,32 +150,33 @@ class QueryWidget(QDockWidget, WindowInfo, HasDatabaseDisplaySupport):
     def __init__(self, parent):
         super().__init__(parent=parent)
         self._query_text = AutoCompletionTextEdit(parent=self)
-        self.run_button = QPushButton(parent=self, text="Run", icon=QIcon.fromTheme("media-playback-start"))
+        self._exec_buttons = QDialogButtonBox(Qt.Orientation.Horizontal, self)
+        self._run_button = QPushButton(parent=self, text="Run", icon=QIcon.fromTheme("media-playback-start"))
         self._init_ui()
         self.shut_database()
 
     def _init_ui(self):
         self.setWindowTitle("SQL Search")
-        self.run_button.setShortcut("F9")
-        exec_buttons = QDialogButtonBox(Qt.Orientation.Horizontal, self)
-        exec_buttons.addButton(QDialogButtonBox.StandardButton.Reset)
-        exec_buttons.addButton(self.run_button, QDialogButtonBox.ButtonRole.AcceptRole)
-        exec_buttons.clicked.connect(self._clicked)
+        self._run_button.setShortcut("F9")
+
+        self._exec_buttons.addButton(QDialogButtonBox.StandardButton.Reset)
+        self._exec_buttons.addButton(self._run_button, QDialogButtonBox.ButtonRole.AcceptRole)
+        self._exec_buttons.clicked.connect(self._clicked)
         self._query_text.setPlaceholderText("Search this database using SQL statements\n"
                                             "Ex: Select * from database where 1=1")
-        self.setTitleBarWidget(exec_buttons)
+        self.setTitleBarWidget(self._exec_buttons)
         self.setWidget(self._query_text)
 
     @property
-    def statustip(self):
+    def statustip(self) -> str:
         return "Search this database using SQL statements"
 
     @property
-    def icon(self):
+    def icon(self) -> QIcon:
         return QIcon.fromTheme("folder-saved-search")
 
     @property
-    def shortcut(self):
+    def shortcut(self) -> str:
         return "F3"
 
     @property
@@ -195,9 +196,9 @@ class QueryWidget(QDockWidget, WindowInfo, HasDatabaseDisplaySupport):
         self._query_text.setFocus()
 
     def _clicked(self, btn):
-        if btn == self.run_button:
+        if btn == self._run_button:
             text = self._query_text.toPlainText()
-            if text is not "":
+            if text != "":
                 self.query_event.emit(text)
             else:
                 app.logger.error("Invalid query will not be sent to the database")

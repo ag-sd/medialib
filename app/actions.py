@@ -129,13 +129,12 @@ class ViewMenu(QMenu, HasDatabaseDisplaySupport):
 
     def update_available_views(self, available_views: list):
         for action in self.actions():
-            if action.text() in available_views:
-                if action.property("view-action") is not None:
-                    action.setEnabled(action.text() in available_views)
+            if action.property("view-action") is not None:
+                action.setEnabled(action.text() in available_views)
 
     def __init__(self, parent):
         super().__init__("&View", parent=parent)
-        self._combo_stylesheet = f"padding: {parent.fontMetrics().horizontalAdvance('  ')}px; text-align:left;"
+        self._combo_stylesheet = f"padding: {self.fontMetrics().horizontalAdvance('  ')}px; text-align:left;"
         self._hidden_tags = set()
         self._all_tags = []
         self._tag_checkboxes = {}
