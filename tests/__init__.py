@@ -1,4 +1,5 @@
 # coverage run -m unittest discover -s /mnt/dev/medialib/tests/database && coverage html
+# If pytest is installed:  coverage run -m pytest && coverage html
 import sys
 
 from PyQt6.QtWidgets import QApplication

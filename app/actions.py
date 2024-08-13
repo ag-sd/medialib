@@ -259,14 +259,14 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
     def show_database(self, database: Database):
         # You can only save to an existing database. Default databases need to be 'saved as'
         self._save.setEnabled(not database.type == DBType.IN_MEMORY)
-        self._save_as.setEnabled(True)
         self._reset.setEnabled(not database.type == DBType.IN_MEMORY)
-        self._refresh.setEnabled(True)
-        self._selective_refresh.setEnabled(True)
         self._add_bookmark.setEnabled(not database.type == DBType.IN_MEMORY)
-        self._shut_db.setEnabled(True)
         self._open_search.setEnabled(not database.type == DBType.IN_MEMORY)
         self._shut_search.setEnabled(False)
+        self._save_as.setEnabled(True)
+        self._refresh.setEnabled(True)
+        self._selective_refresh.setEnabled(True)
+        self._shut_db.setEnabled(True)
         self._paths_menu.setEnabled(True)
 
         _clear_menu(self._paths_menu)
