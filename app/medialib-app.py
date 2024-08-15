@@ -104,6 +104,9 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
         app.logger.debug("Load database and present data ...")
         # Update Menubar
         self.menubar.show_database(self.database)
+        # Update Search
+        if self._sql_search_widget and self._sql_search_widget.isVisible():
+            self._sql_search_widget.show_database(database)
         # Update Plugins
         for plugin in self._plugins:
             if isinstance(plugin, HasDatabaseDisplaySupport):
@@ -124,6 +127,9 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
                     self._db_event(DBAction.SAVE, None)
             # Update Menubar
             self.menubar.shut_database()
+            # Update Search
+            if self._sql_search_widget and self._sql_search_widget.isVisible():
+                self._sql_search_widget.shut_database()
             # Update Plugins
             for plugin in self._plugins:
                 if isinstance(plugin, HasDatabaseDisplaySupport):
@@ -168,10 +174,14 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
                     app.logger.debug("User canceled save action")
 
             case DBAction.OPEN_DB:
-                # Choose DB to open
-                open_location = QFileDialog.getExistingDirectory(self, caption=db_action,
-                                                                 directory=str(appsettings.get_config_dir()))
-                # Then open it
+                if event_args is None:
+                    # Prompt user for a db to open
+                    # Choose DB to open
+                    open_location = QFileDialog.getExistingDirectory(self, caption=db_action,
+                                                                     directory=str(appsettings.get_config_dir()))
+                else:
+                    open_location = event_args
+                # Then open the supplied location if its valid
                 if open_location != "":
                     self._open_database(open_location)
 
@@ -198,6 +208,7 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
 
             case DBAction.OPEN_SEARCH:
                 self._sql_search_widget = search.QueryWidget(self)
+                self._sql_search_widget.show_database(self.database)
                 self._sql_search_widget.query_event.connect(self._sql_search_widget__query_event)
                 self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._sql_search_widget)
                 self._sql_search_widget.setVisible(True)
@@ -267,9 +278,12 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
 
     def _sql_search_widget__query_event(self, query):
         app.logger.debug("Searching database with paths provided")
-        results = self.database.query(query, self.menubar.get_selected_database_paths())
-        data = ModelData(data=results.data, path="Search Results")
-        self._display_model_data([data], results.searched_paths, results.columns)
+        try:
+            results = self.database.query(query, self.menubar.get_selected_database_paths())
+            data = ModelData(data=results.data, path="Search Results")
+            self._display_model_data([data], results.searched_paths, results.columns)
+        except DatabaseQueryError as d:
+            apputils.show_exception(self, d)
 
     def _refresh_paths(self, paths):
         self.database.clear_cache()

@@ -1,39 +1,117 @@
+import re
+
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QTimer
-from PyQt6.QtGui import QIcon, QTextCursor, QFontDatabase
-from PyQt6.QtWidgets import QTextEdit, QPushButton, QDialogButtonBox, \
-    QDockWidget, QCompleter, QLineEdit
+from PyQt6.QtGui import QIcon, QTextCursor, QFontDatabase, QSyntaxHighlighter, QTextCharFormat, QFont
+from PyQt6.QtWidgets import QPushButton, QDialogButtonBox, \
+    QDockWidget, QCompleter, QLineEdit, QPlainTextEdit
 
 import app
 from app.database.ds import Database, HasDatabaseDisplaySupport
 from app.widgets.windowinfo import WindowInfo
 
 
-class AutoCompletionTextEdit(QTextEdit):
+# https://panthema.net/2006/qtsqlview/src/QtSqlView-0.8.0/src/SQLHighlighter.cpp.html
+#
+# https://doc.qt.io/qtforpython-6/examples/example_widgets_richtext_syntaxhighlighter.html
+#
+# https://stackoverflow.com/questions/52765697/qregexp-and-single-quoted-text-for-qsyntaxhighlighter
+#
+# https://wiki.python.org/moin/PyQt/Python%20syntax%20highlighting
+
+def get_context_aware_completer(database: Database = None):
+    keywords = sorted(SQLHighlighter.ALL_KEYWORDS + database.tags if database is not None else [])
+    _completer = QCompleter(keywords, None)
+    sys_monospace_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont).family()
+    _completer.popup().setStyleSheet(f"font-family: '{sys_monospace_font}', monospace;")
+    return _completer
+
+
+class SQLHighlighter(QSyntaxHighlighter):
+    _KEYWORD_GROUPS = [
+        # Most used
+        ["SELECT", "DISTINCT", "FROM", "WHERE", "GROUP", "BY", "HAVING", "ORDER", "LIMIT", "IS", "BETWEEN", "LIKE",
+         "ILIKE", "ELSE", "END", "CASE", "WHEN", "THEN", "EXISTS", "IN", "AVG", "SUM"],
+        # Less used
+        ["UNION", "ALL", "AND", "INTERSECT", "EXCEPT", "COLLATE", "ASC", "DESC", "ON", "USING", "NATURAL", "INNER",
+         "CROSS", "LEFT", "OUTER", "JOIN", "NOTNULL", "NULL", ],
+        # Even lesser used
+        ["CURRENT_TIME", "CURRENT_DATE", "CURRENT_TIMESTAMP", "TRUE", "FALSE", "ANY", "SOME", "WITH", "AS", ],
+        ["INDEXED", "NOT", "OFFSET", "OR", "CAST", "ISNULL", "GLOB", "REGEXP", "MATCH", "ESCAPE"]
+    ]
+
+    ALL_KEYWORDS = sum(_KEYWORD_GROUPS, [])
+
+    _SQL_OPERATORS = [
+        "--[+\\-*/]",
+        "--[<>=!]"
+    ]
+
+    _BRACES = ["--[()[\\]{}]", ]
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._rule_map = {}
+        self._create_rule(SQLHighlighter._KEYWORD_GROUPS, weight=QFont.Weight.Bold, foreground=Qt.GlobalColor.blue)
+        self._create_rule(SQLHighlighter._SQL_OPERATORS, weight=QFont.Weight.Bold, foreground=Qt.GlobalColor.magenta)
+        self._create_rule(SQLHighlighter._BRACES, weight=QFont.Weight.Bold, foreground=Qt.GlobalColor.magenta)
+
+    def _create_rule(self, rule_group: list, weight, foreground):
+        for group in rule_group:
+            if isinstance(group, list):
+                rule_pattern = f"\\b({"|".join(group)})\\b"
+            else:
+                rule_pattern = group[2:]
+
+            rule_format = QTextCharFormat()
+            rule_format.setForeground(foreground)
+            rule_format.setFontWeight(weight)
+            self._rule_map[re.compile(rule_pattern, re.IGNORECASE)] = rule_format
+
+    def highlightBlock(self, text: str):
+        for pattern, _format in self._rule_map.items():
+            for match in re.finditer(pattern, text):
+                start, end = match.span()
+                # print(f"Match found {text[start:end]}")
+                self.setFormat(start, end - start, _format)
+
+    @property
+    def keywords(self):
+        return sorted(self._ALL_KEYWORDS)
+
+
+class AutoCompletionTextEdit(QPlainTextEdit):
     # https://doc.qt.io/qt-6/qtwidgets-tools-customcompleter-example.html
+    # https://stackoverflow.com/questions/28956693/pyqt5-qtextedit-auto-completion
 
     def __init__(self, parent):
         super().__init__(parent=parent)
         self._completer = None
         self.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
 
-    def set_completer(self, _completer):
+    def set_completer(self, completer):
         if self._completer:
-            self._completer.disconnect(self)
-        if not _completer:
-            self._completer = None
+            self._completer.disconnect()
+
+        self._completer = completer
+        if not self._completer:
             return
 
-        _completer.setWidget(self)
-        _completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
-        _completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        self._completer = _completer
+        self._completer.setWidget(self)
+        self._completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self._completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self._completer.activated.connect(self.insert_completion)
 
-    def remove_completer(self):
-        self._completer = None
-
     def insert_completion(self, completion):
+        if self._completer.widget() != self:
+            return
+
         tc = self.textCursor()
+
+        # Handle case
+        last_char_before_completion = tc.block().text()[-1]
+        if last_char_before_completion.islower():
+            completion = completion.lower()
+
         extra = len(completion) - len(self._completer.completionPrefix())
         tc.movePosition(QTextCursor.MoveOperation.Left)
         tc.movePosition(QTextCursor.MoveOperation.EndOfWord)
@@ -58,21 +136,6 @@ class AutoCompletionTextEdit(QTextEdit):
                     return
 
         is_shortcut = event.modifiers() == Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_Space
-        is_inline = event.modifiers() == Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_Enter
-
-        if is_inline:
-            # set completion mode as inline
-            self._completer.setCompletionMode(QCompleter.CompletionMode.InlineCompletion)
-            completion_prefix = self.text_under_cursor()
-            if completion_prefix != self._completer.completionPrefix():
-                self._completer.setCompletionPrefix(completion_prefix)
-            self._completer.complete()
-            # set the current suggestion in the text box
-            self._completer.insertText.emit(self._completer.currentCompletion())
-            # reset the completion mode
-            self._completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
-            return
-
         if not self._completer or not is_shortcut:
             super().keyPressEvent(event)
 
@@ -96,7 +159,6 @@ class AutoCompletionTextEdit(QTextEdit):
 
 
 class FindWidget(QDockWidget, WindowInfo):
-
     find_event = pyqtSignal(str)
 
     def __init__(self, parent):
@@ -144,16 +206,15 @@ class FindWidget(QDockWidget, WindowInfo):
 
 
 class QueryWidget(QDockWidget, WindowInfo, HasDatabaseDisplaySupport):
-
     query_event = pyqtSignal(str)
 
     def __init__(self, parent):
         super().__init__(parent=parent)
         self._query_text = AutoCompletionTextEdit(parent=self)
+        self._highlighter = SQLHighlighter(self._query_text.document())
         self._exec_buttons = QDialogButtonBox(Qt.Orientation.Horizontal, self)
         self._run_button = QPushButton(parent=self, text="Run", icon=QIcon.fromTheme("media-playback-start"))
         self._init_ui()
-        self.shut_database()
 
     def _init_ui(self):
         self.setWindowTitle("SQL Search")
@@ -185,12 +246,11 @@ class QueryWidget(QDockWidget, WindowInfo, HasDatabaseDisplaySupport):
 
     def show_database(self, database: Database):
         self._query_text.clear()
-        completer = QCompleter(database.tags, self)
-        self._query_text.set_completer(completer)
+        ca_completer = get_context_aware_completer(database)
+        self._query_text.set_completer(ca_completer)
 
     def shut_database(self):
-        self._query_text.clear()
-        self._query_text.remove_completer()
+        self.setEnabled(False)
 
     def hasFocus(self):
         self._query_text.setFocus()
@@ -210,17 +270,25 @@ class QueryWidget(QDockWidget, WindowInfo, HasDatabaseDisplaySupport):
 #
 # if __name__ == '__main__':
 #     app = QApplication([])
-#     ex = QueryWidget(parent=None)
-#     # db = Database.open_db("/mnt/documents/dev/testing/07-24-Test-Images/")
-#     # ex.show_database(db)
-#     # ex.addItems(["a", "b", "c", "d"])
-#     # lay = QVBoxLayout()
-#     # for j in range(8):
-#     #     label = QLabel("This is label # {}".format(j))
-#     #     label.setAlignment(Qt.AlignCenter)
-#     #     lay.addWidget(label)
-#     # w = QWidget()
-#     # w.setLayout(lay)
-#     # ex.set_content_widget(w)
-#     ex.show()
+#     editor = AutoCompletionTextEdit(None)
+#     highlight = SQLHighlighter(editor.document())
+#     editor.setMinimumSize(500, 500)
+#     completer = QCompleter(highlight.keywords, None)
+#     system_monospace_font_family = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont).family()
+#     completer.popup().setStyleSheet(f"font-family: '{system_monospace_font_family}', monospace;")
+#     editor.set_completer(completer)
+#     editor.show()
+#     #     ex = QueryWidget(parent=None)
+#     #     # db = Database.open_db("/mnt/documents/dev/testing/07-24-Test-Images/")
+#     #     # ex.show_database(db)
+#     #     # ex.addItems(["a", "b", "c", "d"])
+#     #     # lay = QVBoxLayout()
+#     #     # for j in range(8):
+#     #     #     label = QLabel("This is label # {}".format(j))
+#     #     #     label.setAlignment(Qt.AlignCenter)
+#     #     #     lay.addWidget(label)
+#     #     # w = QWidget()
+#     #     # w.setLayout(lay)
+#     #     # ex.set_content_widget(w)
+#     #     ex.show()
 #     sys.exit(app.exec())
