@@ -324,7 +324,7 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
             case ViewAction.VIEW:
                 view = event_args
                 app.logger.debug(f"View changed {view}")
-                new_view = view.view()
+                new_view = view.view(self)
                 self.view_layout.replaceWidget(self.current_view, new_view)
                 del self.current_view
                 self.current_view = new_view

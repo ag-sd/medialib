@@ -27,8 +27,12 @@ V_VERSION = "version"
 EXIFTOOL_APP = "exiftool"
 EXIFTOOL_CSV_DELIMITER = "|"
 
+FIELD_SOURCE_FILE = "SourceFile"
+FIELD_FILE_NAME = "System:FileName"
+FIELD_FILE_SIZE = "System:FileSize"
+
 _FIELDS_BASIC = [
-    "SourceFile",
+    FIELD_SOURCE_FILE,
     "System:FileName",
     "System:Directory",
     "System:FileSize",

@@ -8,6 +8,7 @@ from PyQt6.QtGui import QStandardItemModel, QStandardItem, QIcon
 from PyQt6.QtWidgets import QTreeView, QTableView, QAbstractItemView
 
 import app
+from app.database import props
 
 _MIME_ICON_CACHE = {}
 _mime_database = QMimeDatabase()
@@ -18,11 +19,12 @@ def get_mime_type_icon_name(file: str) -> str:
     return mime_type.iconName()
 
 
-def get_mime_type_icon(mime_type_icon_name: str):
+def get_mime_type_icon(mime_type_icon_name: str, use_fallback_icon=True):
     # TODO: Test
     if mime_type_icon_name not in _MIME_ICON_CACHE:
         mime_icon = QIcon.fromTheme(mime_type_icon_name)
-        if mime_icon is None:
+        if mime_icon is None and use_fallback_icon:
+            # Icon was not found, so let's return a generic icon
             app.logger.debug(f"Adding icon for {mime_type_icon_name} to cache")
             if mime_type_icon_name == "text-x-generic":
                 app.logger.warning(f"Icon for {mime_type_icon_name} was not found, will return None")
@@ -44,7 +46,7 @@ class ModelManager:
         self._proxy_model = None
 
     @abstractmethod
-    def set_model(self, model_data: list, fields: list):
+    def set_model(self, model_data: list, fields: list | None):
         raise NotImplemented
 
     def find_text(self, text):
@@ -59,51 +61,134 @@ class ModelManager:
 
 
 class JsonView(QTreeView, ModelManager):
+    class LazyJsonModel(QStandardItemModel):
+        """
+        This is a lazy model and will only build nodes if the user expands something
+        """
 
-    def __init__(self):
-        super().__init__()
+        def __init__(self, model_data: list, fields: list = None, parent=None):
+            super().__init__(parent)
+            self._fields = set(fields) if fields is not None else None
+            self.setColumnCount(2)
+            self.setHeaderData(0, Qt.Orientation.Horizontal, "Key")
+            self.setHeaderData(1, Qt.Orientation.Horizontal, "Data")
+            for _node in model_data:
+                self._add_child(self.invisibleRootItem(), _node.path, _node.data,
+                                get_mime_type_icon(get_mime_type_icon_name(_node.path)))
+
+        def canFetchMore(self, index: QModelIndex):
+            """
+            Returns true if the item referenced by the index has children, but hasn't been built
+            Args:
+                index: The item to evaluate
+            Returns:
+                If item already has children or does not have children at all, return false
+            """
+            item = self.itemFromIndex(index)
+            if item is not None:
+                item_data = item.data(Qt.ItemDataRole.UserRole)
+                child_count = 0
+                if item_data is not None:
+                    if isinstance(item_data, dict) or isinstance(item_data, list):
+                        child_count = len(item_data)
+                # If it already has children or does not have children at all, return false
+                return not (item.hasChildren() or child_count == 0)
+            return super().rowCount(index)
+
+        def rowCount(self, parent: QModelIndex = ...):
+            """
+            Returns the row count, if this node has been built, otherwise this function returns 0. If the
+            model receives a 0 from this method, it will then call methods to add the children
+            Args:
+                parent: The node to evaluate
+            Returns:
+                The current count of children **that are already present under the parent**
+            """
+            item = self.itemFromIndex(parent)
+            if item is not None:
+                if item.hasChildren():
+                    return item.rowCount()
+                else:
+                    return 0
+            else:
+                return super().rowCount(parent)
+
+        def hasChildren(self, parent: QModelIndex = ...):
+            """
+            Checks if the parent is already built or can be built and returns true if the parent has
+            children, or if it can have children, but they havent been added yet.
+            Args:
+                parent: The node to evaluate
+            Returns:
+                True if the parent has children or can have children, False otherwise
+            """
+            item = self.itemFromIndex(parent)
+            if item is not None:
+                item_data = item.data(Qt.ItemDataRole.UserRole)
+                item_can_have_children = False
+                if item_data is not None:
+                    if isinstance(item_data, dict) or isinstance(item_data, list):
+                        item_can_have_children = len(item_data) > 0
+                return item.hasChildren() or item_can_have_children
+            return super().rowCount(parent)
+
+        def fetchMore(self, parent):
+            """
+            If the parent has children, this method will insert them under the parent if not already done
+            Args:
+                parent: The node to evaluate for children
+            """
+            item = self.itemFromIndex(parent)
+            if item is not None:
+                item_data = item.data(Qt.ItemDataRole.UserRole)
+                if item_data is not None:
+                    if isinstance(item_data, dict):
+                        for key, value in item_data.items():
+                            if self._fields:
+                                if key in self._fields:
+                                    self._add_child(item, key, value)
+                            else:
+                                self._add_child(item, key, value)
+                    elif isinstance(item_data, list):
+                        for index, value in enumerate(item_data):
+                            self._add_child(item, f"[{index}]", value)
+                    return
+
+            super().fetchMore(parent)
+
+        def _add_child(self, root: QStandardItem, key: str, value, icon=None):
+            if isinstance(value, list):
+                # List
+                root.appendRow([self._standard_item(key, value, icon), QStandardItem(f"{len(value)} items")])
+            elif isinstance(value, dict):
+                # Dictionary
+                if props.FIELD_FILE_NAME in value:
+                    icon = get_mime_type_icon(get_mime_type_icon_name(value[props.FIELD_FILE_NAME]))
+                    key = value[props.FIELD_FILE_NAME]
+                data_field = value[props.FIELD_FILE_SIZE] if props.FIELD_FILE_SIZE in value else ""
+                root.appendRow([self._standard_item(key, value, icon), QStandardItem(data_field)])
+            else:
+                # Node value
+                root.appendRow([QStandardItem(key), QStandardItem(str(value))])
+
+        @staticmethod
+        def _standard_item(text, data, icon=None):
+            std_item = QStandardItem(text)
+            std_item.setData(data, Qt.ItemDataRole.UserRole)
+            if icon:
+                std_item.setIcon(icon)
+            return std_item
+
+    def set_model(self, model_data: list, fields: list | None):
+        self.setModel(self._create_proxy_model(JsonView.LazyJsonModel(model_data, fields, self.parent())))
+        self.resizeColumnToContents(0)
+
+    def __init__(self, parent):
+        super().__init__(parent)
         self.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)
         self.setSelectionBehavior(QTreeView.SelectionBehavior.SelectRows)
         self.setAlternatingRowColors(True)
-
-    def set_model(self, model_data: list, fields: list):
-        p_model = QStandardItemModel()
-        p_model.setColumnCount(2)
-        p_model.setHeaderData(0, Qt.Orientation.Horizontal, "Key")
-        p_model.setHeaderData(1, Qt.Orientation.Horizontal, "Data")
-        for data in model_data:
-            self._build(p_model.invisibleRootItem(), data.path, data.data, set(fields))
-        self.setModel(self._create_proxy_model(p_model))
-        self.expandAll()
-        self.resizeColumnToContents(0)
-        self.resizeColumnToContents(1)
-
-    def _build(self, root: QStandardItem, parent: str, data, fields: set):
-        """
-        Recursively builds the tree
-        :param root: The root to add leaves to
-        :param parent: The parent of the current data
-        :param data: the data element that should be added to the tree
-        """
-        if isinstance(data, dict):
-            # Iterate Dict by key
-            new_root = QStandardItem(parent)
-            for key, value in data.items():
-                self._build(new_root, key, value, fields)
-            root.appendRow(new_root)
-        elif isinstance(data, list):
-            # Iterate List by index
-            new_root = QStandardItem(parent)
-            for index, value in enumerate(data):
-                self._build(new_root, f"[{index}]", value, fields)
-            root.appendRow(new_root)
-        else:
-            # Key-value pair
-            if parent in fields:
-                # app.logger.debug(f"Append {parent} -> {data} to {root.text()}")
-                root.appendRow([QStandardItem(parent), QStandardItem(str(data))])
-            # else:
-            #     app.logger.debug(f"{parent} is not present in fields to be shown")
+        self.setSortingEnabled(True)
 
 
 class TableView(QTableView, ModelManager):
@@ -168,6 +253,9 @@ class TableView(QTableView, ModelManager):
                     col = self._exif_cols[index.column()]
                     if col in row:
                         item = QStandardItem(str(row[col]))
+                        if index.column() == 0 and props.FIELD_FILE_NAME in row:
+                            icon = get_mime_type_icon(get_mime_type_icon_name(row[props.FIELD_FILE_NAME]))
+                            item.setIcon(icon)
                 else:
                     key = self._exif_cols[index.row()]
                     if key in self._exif_data[0]:
@@ -187,13 +275,12 @@ class TableView(QTableView, ModelManager):
             app.logger.debug("Displaying in Horizontal Mode")
             return Qt.Orientation.Horizontal
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent):
+        super().__init__(parent)
         self.setAlternatingRowColors(True)
         self.setShowGrid(False)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        # self.verticalHeader().setDefaultSectionSize(self.verticalHeader().fontMetrics().height() + 3)
         self.verticalHeader().setHighlightSections(False)
         self.verticalHeader().setSectionsMovable(True)
         self.verticalHeader().setSectionsClickable(True)
@@ -205,8 +292,8 @@ class TableView(QTableView, ModelManager):
     def set_model(self, model_data: list, fields: list):
         p_model = self.TableModel(model_data, fields)
         self.setModel(self._create_proxy_model(p_model))
-        # self.resizeColumnsToContents()
-        # self.resizeRowsToContents()
+        if len(fields) < 20:
+            self.resizeColumnsToContents()
 
 
 class ViewType(Enum):

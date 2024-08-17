@@ -1,8 +1,10 @@
+import sys
 import tempfile
 from pathlib import Path
 
 import app
 from app.database.ds import Database, Properties
+from tests import test_app
 
 
 def get_temp_files(count) -> list:
@@ -29,6 +31,12 @@ def get_test_paths():
 
 def create_test_media_db(save_path: str, test_paths: list = get_test_paths()):
     return Database.create_in_memory(test_paths, save_path)
+
+
+def launch_widget(widget):
+    widget.setMinimumSize(500, 1000)
+    widget.show()
+    sys.exit(test_app.exec())
 
 
 class CallbackHandler:

@@ -267,28 +267,3 @@ class QueryWidget(QDockWidget, WindowInfo, HasDatabaseDisplaySupport):
         else:
             app.logger.warning(f"Unknown Action {btn.text()}")
 
-#
-# if __name__ == '__main__':
-#     app = QApplication([])
-#     editor = AutoCompletionTextEdit(None)
-#     highlight = SQLHighlighter(editor.document())
-#     editor.setMinimumSize(500, 500)
-#     completer = QCompleter(highlight.keywords, None)
-#     system_monospace_font_family = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont).family()
-#     completer.popup().setStyleSheet(f"font-family: '{system_monospace_font_family}', monospace;")
-#     editor.set_completer(completer)
-#     editor.show()
-#     #     ex = QueryWidget(parent=None)
-#     #     # db = Database.open_db("/mnt/documents/dev/testing/07-24-Test-Images/")
-#     #     # ex.show_database(db)
-#     #     # ex.addItems(["a", "b", "c", "d"])
-#     #     # lay = QVBoxLayout()
-#     #     # for j in range(8):
-#     #     #     label = QLabel("This is label # {}".format(j))
-#     #     #     label.setAlignment(Qt.AlignCenter)
-#     #     #     lay.addWidget(label)
-#     #     # w = QWidget()
-#     #     # w.setLayout(lay)
-#     #     # ex.set_content_widget(w)
-#     #     ex.show()
-#     sys.exit(app.exec())

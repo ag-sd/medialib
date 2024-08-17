@@ -39,7 +39,7 @@ class QueryWidgetTester(unittest.TestCase):
             self.assertEqual(cb, test_text)
 
         self._query_widget.query_event.connect(callback)
-        self._query_widget._query_text.setText(test_text)
+        self._query_widget._query_text.setPlainText(test_text)
         QTest.mouseClick(self._query_widget._run_button, Qt.MouseButton.LeftButton)
         self.assertTrue(self._callback_called, "Callback event wasn't received")
 
@@ -50,7 +50,7 @@ class QueryWidgetTester(unittest.TestCase):
             self._callback_called = True
             self.fail("This call should not be made because there is no text in the search box")
 
-        self._query_widget._query_text.setText(test_text)
+        self._query_widget._query_text.setPlainText(test_text)
         self._query_widget.query_event.connect(callback)
         QTest.mouseClick(self._query_widget._exec_buttons.button(QDialogButtonBox.StandardButton.Reset),
                          Qt.MouseButton.LeftButton)
@@ -58,7 +58,7 @@ class QueryWidgetTester(unittest.TestCase):
 
     def test_text_retrieval(self):
         test_text = "Foo_BAR baz"
-        self._query_widget._query_text.setText(test_text)
+        self._query_widget._query_text.setPlainText(test_text)
         self.assertEqual(self._query_widget.query, test_text)
 
 
