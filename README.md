@@ -12,13 +12,13 @@ TODO
 ## TODO
 ### Currently work priority
 1. Rename database to Collection
-2. Rename Path to volume
-3. Dynamic Menus
+2. Rename Path to Directory
+3. File System View
 4. Support for really large collections
 5. Export data
 6. Paginated results
 7. Find in virtual table
-8. Private Collections
+8. Private Collections: Zipped / Mark Private
 9. System diagram using Mermaid
 10. Data diagram using Mermaid
 11. Encrypted collections
@@ -58,3 +58,4 @@ TODO
 - [x] Component testing
 - [x] Fast load of JSON views
 - [x] Database operations to be atomic, so that the DB can be queried while updates/refreshes are taking place
+- [x] Dynamic Menus
