@@ -116,13 +116,15 @@ class ViewMenu(QMenu, HasDatabaseDisplaySupport):
     _PROP_FIELD_ID = "field-ids"
 
     def show_database(self, database: Database):
+        # Now Build the new menus
         self._update_all_fields_menu(database)
         self._update_presets_menu(database)
+        self._view_menu_presets.setEnabled(True)
+        self._view_menu_all_fields.setEnabled(True)
 
     def shut_database(self):
-        _clear_menu(self._view_menu_presets)
-        _clear_menu(self._view_menu_all_fields)
-        _clear_menu(self._presets_group)
+        self._view_menu_presets.setEnabled(False)
+        self._view_menu_all_fields.setEnabled(False)
         self._hidden_tags = set()
         self._all_tags = []
         self._tag_checkboxes = {}
@@ -145,11 +147,14 @@ class ViewMenu(QMenu, HasDatabaseDisplaySupport):
         self._init_default_menu()
 
     def _init_default_menu(self):
+        view_group = QActionGroup(self)
+        view_group.setExclusive(True)
         for i, v in enumerate(ViewType):
             view_action = _create_action(self, v.name, func=self._raise_view_event, icon=v.icon,
-                                         shortcut=f"Alt+Shift+{i + 1}", tooltip=v.description)
+                                         shortcut=f"Alt+Shift+{i + 1}", tooltip=v.description, checked=False)
             view_action.setProperty("view-action", True)
             self.addAction(view_action)
+            view_group.addAction(view_action)
 
         self.addSeparator()
 
@@ -167,6 +172,7 @@ class ViewMenu(QMenu, HasDatabaseDisplaySupport):
         return cb
 
     def _update_all_fields_menu(self, db: Database):
+        self._view_menu_all_fields.clear()
         orphan_fields_added = False
         tag_groups = {}
         for key in db.tags:
@@ -195,6 +201,7 @@ class ViewMenu(QMenu, HasDatabaseDisplaySupport):
             self._view_menu_all_fields.addMenu(group_menu)
 
     def _update_presets_menu(self, db: Database):
+        self._view_menu_presets.clear()
         self._create_preset("Basic Fields", "Show basic file information", props.get_basic_fields(), db)
         self._create_preset("Image Fields", "Show image file information", props.get_image_fields(), db)
         self._create_preset("All Fields", "Show all available file information", set(self._all_tags), db)

@@ -3,6 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from PyQt6.QtCore import Qt
+
+from app import views
 from app.database import props
 from app.views import JsonView, ModelData, TableView
 from tests.database import test_utils
@@ -57,6 +60,14 @@ class JsonViewTests(unittest.TestCase):
 
         self.assertEqual(self._json_view.model().rowCount(), 1)
 
+    def test_no_data(self):
+        model_data = []
+        self._json_view.set_model(model_data, ["X", "A", props.FIELD_FILE_NAME])
+        self.assertEqual(self._json_view.model().rowCount(), 0)
+        self.assertEqual(self._json_view.model().columnCount(), 1)
+        self.assertEqual(self._json_view.model().headerData(0, Qt.Orientation.Horizontal),
+                         views._NO_DATA_MESSAGE)
+
     @unittest.skip("Run this test only if you want to actually bring up the UI")
     def test_start_as_gui(self):
         test_file = Path(__file__).parent / "resources" / "sample_users.json"
@@ -92,6 +103,14 @@ class TableViewTests(unittest.TestCase):
         # test_utils.launch_widget(self._table_view)
         self.assertEqual(self._table_view.model().rowCount(), 3)
         self.assertEqual(self._table_view.model().columnCount(), 1)
+
+    def test_no_data(self):
+        model_data = []
+        self._table_view.set_model(model_data, ["X", "A", props.FIELD_FILE_NAME])
+        self.assertEqual(self._table_view.model().rowCount(), 0)
+        self.assertEqual(self._table_view.model().columnCount(), 1)
+        self.assertEqual(self._table_view.model().headerData(0, Qt.Orientation.Horizontal),
+                         views._NO_DATA_MESSAGE)
 
 
 
