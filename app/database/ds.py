@@ -9,7 +9,6 @@ import app
 from app.database import indexer, props
 from app.database.exifinfo import ExifInfo
 from app.database.props import DBType
-from app.views import ViewType
 
 
 class DatabaseNotFoundError(Exception):
@@ -28,8 +27,14 @@ class DatabaseQueryError(Exception):
 
 
 @dataclass
+class SearchResult:
+    path: str
+    results: list
+
+
+@dataclass
 class SearchResults:
-    data: list
+    data: list[SearchResult]
     columns: list
     query: str
     searched_paths: list
@@ -121,16 +126,16 @@ class Database:
             raise DatabaseQueryError(TypeError("Cannot query an in-memory database"))
 
         app.logger.debug(f"Querying DB index with the following query: {query}")
-        # Convert the paths to path_keys
-        path_keys = set()
-        for path in query_paths:
-            path_keys.add(str(self._cache_file_path(self._create_path_key(path))))
-
-        try:
-            results, columns = indexer.query_index(self.save_path, query, list(path_keys))
-            return SearchResults(data=results, columns=columns, query=query, searched_paths=query_paths)
-        except Exception as e:
-            raise DatabaseQueryError(root_exception=e)
+        search_data = []
+        columns = None
+        for _path in query_paths:
+            disk_cache_file_name = str(self._cache_file_path(self._create_path_key(_path)))
+            try:
+                results, columns = indexer.query_index(self.save_path, query, disk_cache_file_name)
+                search_data.append(SearchResult(results=results, path=_path))
+            except Exception as e:
+                raise DatabaseQueryError(root_exception=e)
+        return SearchResults(data=search_data, columns=columns, query=query, searched_paths=query_paths)
 
     def data(self, path: str, refresh=False):
         """
@@ -268,7 +273,7 @@ class Database:
         :return: A string of the key that uniquely identifies this path in the database/cache
         """
         path_parts = Path(path).parts
-        key = f"{'__'.join(path_parts[1:])}.{ViewType.JSON.name.lower()}"
+        key = f"{'__'.join(path_parts[1:])}.json"
         return key
 
     def _cache_file_path(self, key: str) -> Path:

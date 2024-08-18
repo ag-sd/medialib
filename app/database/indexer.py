@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import duckdb
@@ -18,7 +19,10 @@ def create_index(database_path: str):
 
     # Create a connection to the db file
     db_path = Path(database_path)
-    conn = _get_connection(db_path, is_read_only=False)
+    # Create a temporary database first
+    temp_db = f"{str(_get_db_file(db_path))}.temp"
+    # Perform Operation
+    conn = duckdb.connect(temp_db, read_only=False)
     try:
         db_data = db_path / "*.json"
         insert_stmt = (f"CREATE OR REPLACE TABLE {props.DB_INDEX_NAME} AS "
@@ -35,23 +39,26 @@ def create_index(database_path: str):
     finally:
         conn.close()
 
+    # Rename the file
+    os.rename(temp_db, _get_db_file(db_path))
+
     return True
 
 
-def query_index(database_path: str, query: str, path_keys: list):
+def query_index(database_path: str, query: str, path: str):
     """
     Queries the database at the supplied path with the query
     Args:
         database_path: The path to the database
         query: The query to run on the database
-        path_keys: The Paths within this database to restrict the search to
+        path: The path within this database to restrict the search to
 
     Returns:
         The result of the query
 
     """
-    db_path = Path(database_path)
-    conn = _get_connection(db_path, is_read_only=True)
+    db_file = _get_db_file(Path(database_path))
+    conn = duckdb.connect(str(db_file), read_only=True)
     # https://duckdb.org/docs/api/python/relational_api
     # https://duckdb.org/docs/api/python/relational_api#sql-queries
     # https://duckdb.org/docs/api/c/replacement_scans.html
@@ -61,18 +68,11 @@ def query_index(database_path: str, query: str, path_keys: list):
         So, given a list of query paths, we first map these to the keys that would represent the filename of the json 
         file that stores data about the path in the database
         """
+        app.logger.debug(f"Starting query execution for {path}")
 
-        """
-        TODO
-        Loop over each path and create a relation for the path. Apply the query to that path only
-        Collect results and send back as a list of {path: results}, sql.columns
-        This is more conformant with the current way paths are handled in the database
-        """
-
-        app.logger.debug("Starting query execution")
         # First create a dataset of results that are for the selected paths
         database = conn.sql(f"select * from {props.DB_INDEX_NAME} where "
-                            f"filename in ({(', '.join('\'' + item + '\'' for item in path_keys))})")
+                            f"filename = \'{path}\'")
         # Then layer the user supplied query over that. The query will run against the `database` relation that was
         # just created.
         sql = conn.sql(query)
@@ -89,11 +89,8 @@ def query_index(database_path: str, query: str, path_keys: list):
         conn.close()
 
 
-def _get_connection(database_path: Path, is_read_only=True):
-    db_path = Path(database_path)
-    db_file = db_path / props.DB_INDEX_FILE
-    return duckdb.connect(str(db_file), read_only=is_read_only)
-
+def _get_db_file(database_path: Path) -> Path:
+    return database_path / props.DB_INDEX_FILE
 
 # query_index("/mnt/dev/testing/Medialib/test-db/", "select * from v_database where SourceFile ilike '%cara%'",
 #             ['/mnt/dev/testing/Medialib/test-db/mnt__dev__testing__media.json',

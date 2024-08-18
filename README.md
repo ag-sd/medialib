@@ -11,7 +11,6 @@ TODO
 
 ## TODO
 ### Currently work priority
-
 1. Rename database to Collection
 2. Rename Path to volume
 3. Dynamic Menus
@@ -58,3 +57,4 @@ TODO
 - [x] Setup Coverage
 - [x] Component testing
 - [x] Fast load of JSON views
+- [x] Database operations to be atomic, so that the DB can be queried while updates/refreshes are taking place

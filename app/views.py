@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QTreeView, QTableView, QAbstractItemView
 import app
 from app.database import props
 
+_NO_DATA_MESSAGE = "Message: No Data to Show!"
 _MIME_ICON_CACHE = {}
 _mime_database = QMimeDatabase()
 
@@ -69,12 +70,17 @@ class JsonView(QTreeView, ModelManager):
         def __init__(self, model_data: list, fields: list = None, parent=None):
             super().__init__(parent)
             self._fields = set(fields) if fields is not None else None
-            self.setColumnCount(2)
-            self.setHeaderData(0, Qt.Orientation.Horizontal, "Key")
-            self.setHeaderData(1, Qt.Orientation.Horizontal, "Data")
-            for _node in model_data:
-                self._add_child(self.invisibleRootItem(), _node.path, _node.data,
-                                get_mime_type_icon(get_mime_type_icon_name(_node.path)))
+            if len(model_data) == 0:
+                # No data to show
+                self.setColumnCount(1)
+                self.setHeaderData(0, Qt.Orientation.Horizontal, _NO_DATA_MESSAGE)
+            else:
+                self.setColumnCount(2)
+                self.setHeaderData(0, Qt.Orientation.Horizontal, "Key")
+                self.setHeaderData(1, Qt.Orientation.Horizontal, "Data")
+                for _node in model_data:
+                    self._add_child(self.invisibleRootItem(), _node.path, _node.data,
+                                    get_mime_type_icon(get_mime_type_icon_name(_node.path)))
 
         def canFetchMore(self, index: QModelIndex):
             """
@@ -206,6 +212,11 @@ class TableView(QTableView, ModelManager):
                 for entry in data.data:
                     self._exif_data.append(entry)
 
+            if len(self._exif_data) == 0:
+                # No data.
+                app.logger.info("No data to show.")
+                self._exif_cols = [_NO_DATA_MESSAGE]
+
         @property
         def orientation(self):
             return self._orientation
@@ -292,7 +303,7 @@ class TableView(QTableView, ModelManager):
     def set_model(self, model_data: list, fields: list):
         p_model = self.TableModel(model_data, fields)
         self.setModel(self._create_proxy_model(p_model))
-        if len(fields) < 20:
+        if len(fields) < 20 or self.model().rowCount() < 20:
             self.resizeColumnsToContents()
 
 

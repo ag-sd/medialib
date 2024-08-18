@@ -90,10 +90,9 @@ class TestViewMenu(unittest.TestCase):
             db.save()
             self._view_menu.show_database(db)
             self._view_menu.shut_database()
-            # Available fields count will be zero
-            self.assertEqual(len(list(self._view_menu._view_menu_all_fields.actions())), 0)
-            # Presets are un-available
-            self.assertEqual(len(list(self._view_menu._view_menu_presets.actions())), 0)
+            # Fields is disabled
+            self.assertFalse(self._view_menu._view_menu_all_fields.isEnabled())
+            self.assertFalse(self._view_menu._view_menu_presets.isEnabled())
 
     def test_update_views_disable(self):
         self._view_menu.update_available_views([])

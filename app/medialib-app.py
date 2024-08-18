@@ -279,9 +279,13 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
     def _sql_search_widget__query_event(self, query):
         app.logger.debug("Searching database with paths provided")
         try:
-            results = self.database.query(query, self.menubar.get_selected_database_paths())
-            data = ModelData(data=results.data, path="Search Results")
-            self._display_model_data([data], results.searched_paths, results.columns)
+            search_paths = self.menubar.get_selected_database_paths()
+            results = self.database.query(query, search_paths)
+            model_data = []
+            for search_result in results.data:
+                if len(search_result.results) > 0:
+                    model_data.append(ModelData(data=search_result.results, path=search_result.path))
+            self._display_model_data(model_data, results.searched_paths, results.columns)
         except DatabaseQueryError as d:
             apputils.show_exception(self, d)
 

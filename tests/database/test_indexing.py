@@ -32,13 +32,28 @@ class TestIndexingAndSearching(unittest.TestCase):
             db = test_utils.create_test_media_db(db_path)
             db.save()
             result = db.query("select * from database", db.paths[:1])
-            self.assertEqual(len(result.data), 2)
+            self.assertEqual(len(result.data), 1)
             self.assertEqual(len(result.columns), 88)
+            for d in result.data:
+                if d.path.endswith("audio"):
+                    self.assertEqual(len(d.results), 2)
+                elif d.path.endswith("image"):
+                    self.assertEqual(len(d.results), 4)
+                else:
+                    self.fail("Unexpected path!")
 
     def test_for_all_paths(self):
         with tempfile.TemporaryDirectory() as db_path:
             db = test_utils.create_test_media_db(db_path)
             db.save()
             result = db.query("select * from database", db.paths)
-            self.assertEqual(len(result.data), 6)
+            # Results will be grouped by paths
+            self.assertEqual(len(result.data), len(db.paths))
             self.assertEqual(len(result.columns), 88)
+            for d in result.data:
+                if d.path.endswith("audio"):
+                    self.assertEqual(len(d.results), 2)
+                elif d.path.endswith("image"):
+                    self.assertEqual(len(d.results), 4)
+                else:
+                    self.fail("Unexpected path!")
