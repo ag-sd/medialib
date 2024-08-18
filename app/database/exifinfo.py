@@ -1,5 +1,7 @@
+import os
 import shutil
 import subprocess
+import tempfile
 from enum import Enum, StrEnum
 from pathlib import Path
 
@@ -111,7 +113,16 @@ class ExifInfo:
         app.logger.info(f"Exiftool to run with the command: {cmd}")
         self._status = ExifInfoStatus.WORKING
         if output_file is not None:
-            self._setup_file_process(command=cmd, output_file=output_file)
+            # Make this process atomic
+            p_output_file = Path(output_file)
+            # Create a new output file in the same directory
+            p_tmp_output_file = tempfile.NamedTemporaryFile(delete=False, dir=str(p_output_file.parent))
+            # Perform operation
+            self._setup_file_process(command=cmd, output_file=p_tmp_output_file.name)
+            # Fsync the temp file
+            os.fsync(p_tmp_output_file.fileno())
+            # Rename the file
+            os.rename(p_tmp_output_file.name, output_file)
         else:
             proc = subprocess.run(cmd, capture_output=True, text=True)
             self._data = proc.stdout
