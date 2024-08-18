@@ -6,7 +6,7 @@ from enum import Enum, StrEnum
 from pathlib import Path
 
 import app
-from app.database import props
+from app.collection import props
 
 # https://exiftool.org/exiftool_pod.html#Input-output-text-formatting
 

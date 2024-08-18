@@ -130,12 +130,12 @@ def get_config_dir() -> Path:
     return Path(_settings.config_dir)
 
 
-def get_recently_opened_databases():
-    return _load_list("recent-databases", default=[])
+def get_recently_opened_collections():
+    return _load_list("recent-collections", default=[])
 
 
-def set_recently_opened_databases(recents_list: list):
-    _save_list("recent-databases", recents_list)
+def set_recently_opened_collections(recents_list: list):
+    _save_list("recent-collections", recents_list)
 
 
 def get_bookmarks():

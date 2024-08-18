@@ -6,21 +6,21 @@ class DBType(StrEnum):
     ON_DISK = "on-disk"
 
 
-S_DATABASE = "database"
+S_COLLECTION = "collection"
 S_VERSION = "version"
 
-PROPERTIES_FILE = "database"
+PROPERTIES_FILE = "collection"
 
 DB_INDEX_FILE = "duck.db"
-DB_INDEX_NAME = "database_index"
+DB_INDEX_NAME = "collection_index"
 DB_SAVE_PATH = "save_path"
 DB_PATHS = "paths"
-DB_TYPE = "db_type"
+DB_TYPE = "collection_type"
 DB_CREATED = "created"
 DB_UPDATED = "updated"
 DB_TAGS = "tags"
-DB_NAME = "db_name"
-DB_DEFAULT_NAME = "default-db"
+DB_NAME = "collection_name"
+DB_DEFAULT_NAME = "default-collection"
 
 V_VERSION = "version"
 

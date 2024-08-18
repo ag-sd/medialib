@@ -8,9 +8,9 @@ from PyQt6.QtWidgets import QMenuBar, QMenu, QWidgetAction, QCheckBox
 
 import app
 from app import views, appsettings
-from app.database import props
-from app.database.ds import Database, HasDatabaseDisplaySupport
-from app.database.props import DBType
+from app.collection import props
+from app.collection.ds import Collection, HasCollectionDisplaySupport
+from app.collection.props import DBType
 from app.views import ViewType
 
 
@@ -98,10 +98,10 @@ class DBAction(StrEnum):
     REFRESH_SELECTED = "Refresh Selected Paths"
     RESET = "Reset"
     BOOKMARK = "Add or Remove Favorite"
-    OPEN_DB = "Open Database..."
-    SHUT_DB = "Close Database"
+    OPEN_DB = "Open Collection..."
+    SHUT_DB = "Close Collection"
     PATH_CHANGE = "Path Change"
-    OPEN_SEARCH = "Search this Database"
+    OPEN_SEARCH = "Search this Collection"
     SHUT_SEARCH = "Close Search"
 
 
@@ -110,19 +110,19 @@ class ViewAction(StrEnum):
     FIELD = "Field"
 
 
-class ViewMenu(QMenu, HasDatabaseDisplaySupport):
+class ViewMenu(QMenu, HasCollectionDisplaySupport):
     view_event = pyqtSignal(StrEnum, "PyQt_PyObject")
 
     _PROP_FIELD_ID = "field-ids"
 
-    def show_database(self, database: Database):
+    def show_collection(self, collection: Collection):
         # Now Build the new menus
-        self._update_all_fields_menu(database)
-        self._update_presets_menu(database)
+        self._update_all_fields_menu(collection)
+        self._update_presets_menu(collection)
         self._view_menu_presets.setEnabled(True)
         self._view_menu_all_fields.setEnabled(True)
 
-    def shut_database(self):
+    def shut_collection(self):
         self._view_menu_presets.setEnabled(False)
         self._view_menu_all_fields.setEnabled(False)
         self._hidden_tags = set()
@@ -171,7 +171,7 @@ class ViewMenu(QMenu, HasDatabaseDisplaySupport):
         self._tag_checkboxes[field_name] = cb
         return cb
 
-    def _update_all_fields_menu(self, db: Database):
+    def _update_all_fields_menu(self, db: Collection):
         self._view_menu_all_fields.clear()
         orphan_fields_added = False
         tag_groups = {}
@@ -200,15 +200,15 @@ class ViewMenu(QMenu, HasDatabaseDisplaySupport):
                 self._add_menu_item(group_menu, cb)
             self._view_menu_all_fields.addMenu(group_menu)
 
-    def _update_presets_menu(self, db: Database):
+    def _update_presets_menu(self, db: Collection):
         self._view_menu_presets.clear()
         self._create_preset("Basic Fields", "Show basic file information", props.get_basic_fields(), db)
         self._create_preset("Image Fields", "Show image file information", props.get_image_fields(), db)
         self._create_preset("All Fields", "Show all available file information", set(self._all_tags), db)
 
-    def _create_preset(self, name: str, tooltip: str, fields: set, database: Database):
-        # Remove fields from the presets that are not in this database
-        filtered_fields = [f for f in fields if f in database.tags]
+    def _create_preset(self, name: str, tooltip: str, fields: set, collection: Collection):
+        # Remove fields from the presets that are not in this collection
+        filtered_fields = [f for f in fields if f in collection.tags]
         if len(filtered_fields) > 0:
             action = _create_action(self._view_menu_presets, name, self._preset_clicked_event, tooltip=tooltip,
                                     checked=False)
@@ -216,7 +216,7 @@ class ViewMenu(QMenu, HasDatabaseDisplaySupport):
             self._view_menu_presets.addAction(action)
             self._presets_group.addAction(action)
         else:
-            app.logger.debug(f"{name} will not be shown as none of the fields are in this database")
+            app.logger.debug(f"{name} will not be shown as none of the fields are in this collection")
 
     def _raise_view_event(self, event):
         self.view_event.emit(ViewAction.VIEW, ViewType[event])
@@ -256,19 +256,19 @@ class ViewMenu(QMenu, HasDatabaseDisplaySupport):
         parent.addAction(_action)
 
 
-class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
-    database_event = pyqtSignal(DBAction, "PyQt_PyObject")
+class CollectionMenu(QMenu, HasCollectionDisplaySupport):
+    collection_event = pyqtSignal(DBAction, "PyQt_PyObject")
 
-    _MENU_DB_PATHS = "Database Paths"
+    _MENU_DB_PATHS = "Collection Paths"
     _MENU_DB_HISTORY = "Recently Opened"
     _MENU_DB_BOOKMARKS = "Favorites"
 
-    def show_database(self, database: Database):
-        # You can only save to an existing database. Default databases need to be 'saved as'
-        self._save.setEnabled(not database.type == DBType.IN_MEMORY)
-        self._reset.setEnabled(not database.type == DBType.IN_MEMORY)
-        self._add_bookmark.setEnabled(not database.type == DBType.IN_MEMORY)
-        self._open_search.setEnabled(not database.type == DBType.IN_MEMORY)
+    def show_collection(self, collection: Collection):
+        # You can only save to an existing collection. Default collections need to be 'saved as'
+        self._save.setEnabled(not collection.type == DBType.IN_MEMORY)
+        self._reset.setEnabled(not collection.type == DBType.IN_MEMORY)
+        self._add_bookmark.setEnabled(not collection.type == DBType.IN_MEMORY)
+        self._open_search.setEnabled(not collection.type == DBType.IN_MEMORY)
         self._shut_search.setEnabled(False)
         self._save_as.setEnabled(True)
         self._refresh.setEnabled(True)
@@ -277,13 +277,13 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
         self._paths_menu.setEnabled(True)
 
         _clear_menu(self._paths_menu)
-        for count, item in enumerate(database.paths):
+        for count, item in enumerate(collection.paths):
             self._paths_menu.addAction(_create_action(self, item, func=self._paths_change_event,
                                                       icon=views.get_mime_type_icon_name(item),
                                                       shortcut=f"Ctrl+{count + 1}" if count < 9 else None, checked=True)
                                        )
 
-    def shut_database(self):
+    def shut_collection(self):
         self._save.setEnabled(False)
         self._save_as.setEnabled(False)
         self._reset.setEnabled(False)
@@ -297,8 +297,8 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
         self._paths_menu.setEnabled(False)
 
         # Raise Cleanup Events
-        self.database_event.emit(DBAction.PATH_CHANGE, [])
-        self.database_event.emit(DBAction.SHUT_SEARCH, None)
+        self.collection_event.emit(DBAction.PATH_CHANGE, [])
+        self.collection_event.emit(DBAction.SHUT_SEARCH, None)
 
     @property
     def selected_paths(self) -> list:
@@ -315,7 +315,7 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
         self._update_db_list(self._bookmarks_menu, sub_items=bookmarks, icon_name="bookmarks")
 
     def __init__(self, parent):
-        super().__init__("&Database", parent=parent)
+        super().__init__("&Collection", parent=parent)
 
         self._save = _create_action(self, DBAction.SAVE, shortcut="Ctrl+S", icon="document-save",
                                     tooltip="Save the exif data of all open paths to the DB",
@@ -324,33 +324,33 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
                                        tooltip="Save the exif data of all open paths to the DB",
                                        func=self._db_event, enabled=False)
         self._shut_db = _create_action(self, DBAction.SHUT_DB, shortcut="Ctrl+W", icon="document-close",
-                                       tooltip="Close the database, saving it if required",
+                                       tooltip="Close the collection, saving it if required",
                                        func=self._db_event, enabled=False)
         self._shut_search = _create_action(self, DBAction.SHUT_SEARCH, shortcut="Ctrl+Shift+W", enabled=False,
-                                           tooltip="Close the search results and switch back to database browsing",
+                                           tooltip="Close the search results and switch back to collection browsing",
                                            func=self._db_search_event, icon="view-close-symbolic")
         self._open_search = _create_action(self, DBAction.OPEN_SEARCH, shortcut="F3", enabled=False,
-                                           tooltip="Start Searching this database using SQL statements",
+                                           tooltip="Start Searching this collection using SQL statements",
                                            func=self._db_search_event, icon="folder-saved-search")
         self._refresh = _create_action(self, DBAction.REFRESH, shortcut="F5", icon="view-refresh",
-                                       tooltip="Reload the exif data for the all the database paths from disk",
+                                       tooltip="Reload the exif data for the all the collection paths from disk",
                                        func=self._db_event, enabled=False)
         self._selective_refresh = _create_action(self, DBAction.REFRESH_SELECTED, shortcut="Shift+F5",
                                                  icon="view-refresh", func=self._selective_refresh_event, enabled=False,
                                                  tooltip="Reload the exif data for the the selected "
-                                                         "database paths from disk")
+                                                         "collection paths from disk")
         self._reset = _create_action(self, DBAction.RESET, icon="view-restore",
-                                     tooltip="Reset this database",
+                                     tooltip="Reset this collection",
                                      func=self._db_event, enabled=False)
         self._add_bookmark = _create_action(self, DBAction.BOOKMARK, icon="bookmark",
-                                            tooltip="Add or remove this database from favorites",
+                                            tooltip="Add or remove this collection from favorites",
                                             func=self._db_event, enabled=False)
         self._open_db = _create_action(self, DBAction.OPEN_DB, shortcut="Ctrl+D",
-                                       icon="database-open", func=self._db_event,
-                                       tooltip="Open a non registered private database")
+                                       icon="collection-open", func=self._db_event,
+                                       tooltip="Open a non registered private collection")
 
         self._paths_menu = QMenu(self._MENU_DB_PATHS, self)
-        self._paths_menu.setIcon(QIcon.fromTheme("database-paths"))
+        self._paths_menu.setIcon(QIcon.fromTheme("collection-paths"))
         self._history_menu = QMenu(self._MENU_DB_HISTORY, self)
         self._history_menu.setIcon(QIcon.fromTheme("folder-open-recent"))
         self._bookmarks_menu = QMenu(self._MENU_DB_BOOKMARKS, self)
@@ -384,24 +384,24 @@ class DatabaseMenu(QMenu, HasDatabaseDisplaySupport):
             menu.addAction(_create_action(self, path, func=self._open_db_event, icon=icon_name))
 
     def _paths_change_event(self, _):
-        self.database_event.emit(DBAction.PATH_CHANGE, self.selected_paths)
+        self.collection_event.emit(DBAction.PATH_CHANGE, self.selected_paths)
 
     def _open_db_event(self, db_to_open):
-        self.database_event.emit(DBAction.OPEN_DB, db_to_open)
+        self.collection_event.emit(DBAction.OPEN_DB, db_to_open)
 
     def _db_event(self, action):
-        self.database_event.emit(DBAction(action), None)
+        self.collection_event.emit(DBAction(action), None)
 
     def _selective_refresh_event(self, _):
-        self.database_event.emit(DBAction.REFRESH_SELECTED, self.selected_paths)
+        self.collection_event.emit(DBAction.REFRESH_SELECTED, self.selected_paths)
 
     def _db_search_event(self, event):
         match event:
             case DBAction.OPEN_SEARCH:
-                self.database_event.emit(DBAction.OPEN_SEARCH, self.selected_paths)
+                self.collection_event.emit(DBAction.OPEN_SEARCH, self.selected_paths)
                 self._set_searching_available(False)
             case DBAction.SHUT_SEARCH:
-                self.database_event.emit(DBAction.SHUT_SEARCH, self.selected_paths)
+                self.collection_event.emit(DBAction.SHUT_SEARCH, self.selected_paths)
                 self._set_searching_available(True)
             case _:
                 app.logger.warning(f"Unexpected event {event} received")
@@ -505,15 +505,15 @@ class FileMenu(QMenu):
         self.file_event.emit(MediaLibAction(action))
 
 
-class AppMenuBar(QMenuBar, HasDatabaseDisplaySupport):
+class AppMenuBar(QMenuBar, HasCollectionDisplaySupport):
     view_event = pyqtSignal(ViewAction, "PyQt_PyObject")
     db_event = pyqtSignal(DBAction, "PyQt_PyObject")
     medialib_event = pyqtSignal(MediaLibAction)
 
     def __init__(self, plugins: list):
         super().__init__()
-        self._db_menu = DatabaseMenu(self)
-        self._db_menu.database_event.connect(self.db_event)
+        self._db_menu = CollectionMenu(self)
+        self._db_menu.collection_event.connect(self.db_event)
         self._view_menu = ViewMenu(self)
         self._view_menu.view_event.connect(self.view_event)
         self._help_menu = HelpMenu(self)
@@ -534,15 +534,15 @@ class AppMenuBar(QMenuBar, HasDatabaseDisplaySupport):
     def update_bookmarks(self, bookmarks: list):
         self._db_menu.update_bookmarks(bookmarks)
 
-    def show_database(self, database: Database):
-        self._view_menu.show_database(database)
-        self._db_menu.show_database(database)
+    def show_collection(self, collection: Collection):
+        self._view_menu.show_collection(collection)
+        self._db_menu.show_collection(collection)
 
-    def shut_database(self):
-        self._view_menu.shut_database()
-        self._db_menu.shut_database()
+    def shut_collection(self):
+        self._view_menu.shut_collection()
+        self._db_menu.shut_collection()
 
-    def get_selected_database_paths(self):
+    def get_selected_collection_paths(self):
         return self._db_menu.selected_paths
 
     def update_available_views(self, available_views: list):

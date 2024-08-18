@@ -8,7 +8,7 @@ from PyQt6.QtGui import QStandardItemModel, QStandardItem, QIcon
 from PyQt6.QtWidgets import QTreeView, QTableView, QAbstractItemView
 
 import app
-from app.database import props
+from app.collection import props
 
 _NO_DATA_MESSAGE = "Message: No Data to Show!"
 _MIME_ICON_CACHE = {}

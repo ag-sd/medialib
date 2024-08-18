@@ -5,10 +5,10 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QWidget, QWidgetAction
 
 from app import actions
-from app.actions import ViewMenu, HelpMenu, MediaLibAction, FileMenu, DatabaseMenu, DBAction
+from app.actions import ViewMenu, HelpMenu, MediaLibAction, FileMenu, CollectionMenu, DBAction
 from app.views import ViewType
-from tests.database import test_utils
-from tests.database.test_utils import CallbackHandler
+from tests.collection import test_utils
+from tests.collection.test_utils import CallbackHandler
 
 
 class TestActions(unittest.TestCase):
@@ -58,38 +58,38 @@ class TestViewMenu(unittest.TestCase):
 
         self.assertEqual(len(_actions), 5)
 
-    def test_show_database_image_files(self):
+    def test_show_collection_image_files(self):
         with tempfile.TemporaryDirectory() as db_path:
             test_paths = test_utils.get_test_paths()
             # Image File
             db = test_utils.create_test_media_db(db_path, test_paths[:1])
             db.save()
-            self._view_menu.show_database(db)
+            self._view_menu.show_collection(db)
             # Available fields count will be different
             self.assertEqual(len(list(self._view_menu._view_menu_all_fields.actions())), 8)
             # Presets are available
             self.assertEqual(len(list(self._view_menu._view_menu_presets.actions())), 3)
 
-    def test_show_database_audio_files(self):
+    def test_show_collection_audio_files(self):
         with tempfile.TemporaryDirectory() as db_path:
             test_paths = test_utils.get_test_paths()
             # Audio File
             db = test_utils.create_test_media_db(db_path, test_paths[1:])
             db.save()
-            self._view_menu.show_database(db)
+            self._view_menu.show_collection(db)
             # Available fields count will be different
             self.assertEqual(len(list(self._view_menu._view_menu_all_fields.actions())), 11)
             # Presets are available
             self.assertEqual(len(list(self._view_menu._view_menu_presets.actions())), 3)
 
-    def test_shut_database(self):
+    def test_shut_collection(self):
         with tempfile.TemporaryDirectory() as db_path:
             test_paths = test_utils.get_test_paths()
             # Audio File
             db = test_utils.create_test_media_db(db_path, test_paths[1:])
             db.save()
-            self._view_menu.show_database(db)
-            self._view_menu.shut_database()
+            self._view_menu.show_collection(db)
+            self._view_menu.shut_collection()
             # Fields is disabled
             self.assertFalse(self._view_menu._view_menu_all_fields.isEnabled())
             self.assertFalse(self._view_menu._view_menu_presets.isEnabled())
@@ -113,7 +113,7 @@ class TestViewMenu(unittest.TestCase):
     #         # Audio File
     #         db = test_utils.create_test_media_db(db_path, test_paths[1:])
     #         db.save()
-    #         self._view_menu.show_database(db)
+    #         self._view_menu.show_collection(db)
     #         cb = CallbackHandler(self._view_menu.view_event, expects_callback=True, callback=callback)
     #         self._view_menu._view_menu_all_fields.actions()[0].trigger()
     #         self.assertTrue(cb.callback_handled_correctly)
@@ -166,10 +166,10 @@ class TestFileMenu(unittest.TestCase):
         self.assertTrue(actions._find_action(MediaLibAction.OPEN_GIT, self._file_menu.actions()) is None)
 
 
-class TestDatabaseMenu(unittest.TestCase):
+class TestCollectionMenu(unittest.TestCase):
 
     def setUp(self):
-        self._db_menu = DatabaseMenu(None)
+        self._db_menu = CollectionMenu(None)
         self._callback_handled = False
         self._callback_counter = 0
 
@@ -187,19 +187,19 @@ class TestDatabaseMenu(unittest.TestCase):
         self.assertEqual(_actions[9].text(), DBAction.RESET)
         self.assertEqual(_actions[10].text(), DBAction.BOOKMARK)
         self.assertTrue(_actions[11].isSeparator())
-        self.assertEqual(_actions[12].text(), DatabaseMenu._MENU_DB_PATHS)
+        self.assertEqual(_actions[12].text(), CollectionMenu._MENU_DB_PATHS)
         self.assertTrue(_actions[13].isSeparator())
         self.assertEqual(_actions[14].text(), DBAction.OPEN_DB)
         self.assertTrue(_actions[15].isSeparator())
-        self.assertEqual(_actions[16].text(), DatabaseMenu._MENU_DB_HISTORY)
-        self.assertEqual(_actions[17].text(), DatabaseMenu._MENU_DB_BOOKMARKS)
+        self.assertEqual(_actions[16].text(), CollectionMenu._MENU_DB_HISTORY)
+        self.assertEqual(_actions[17].text(), CollectionMenu._MENU_DB_BOOKMARKS)
 
-    def test_open_database_on_disk(self):
+    def test_open_collection_on_disk(self):
         with tempfile.TemporaryDirectory() as db_path:
             test_paths = test_utils.get_test_paths()
             db = test_utils.create_test_media_db(db_path, test_paths)
             db.save()
-            self._db_menu.show_database(db)
+            self._db_menu.show_collection(db)
             self.assertTrue(self._db_action(DBAction.SAVE).isEnabled())
             self.assertTrue(self._db_action(DBAction.SAVE_AS).isEnabled())
             self.assertTrue(self._db_action(DBAction.RESET).isEnabled())
@@ -213,16 +213,16 @@ class TestDatabaseMenu(unittest.TestCase):
 
             self.assertEqual(len(self._db_menu._paths_menu.actions()), len(test_paths))
 
-    def test_shut_database_on_disk(self):
+    def test_shut_collection_on_disk(self):
         with tempfile.TemporaryDirectory() as db_path:
             test_paths = test_utils.get_test_paths()
             db = test_utils.create_test_media_db(db_path, test_paths)
             db.save()
-            self._db_menu.show_database(db)
+            self._db_menu.show_collection(db)
             self.assertEqual(len(self._db_menu._paths_menu.actions()), len(test_paths))
 
             # Test
-            self._db_menu.shut_database()
+            self._db_menu.shut_collection()
             self.assertFalse(self._db_action(DBAction.SAVE).isEnabled())
             self.assertFalse(self._db_action(DBAction.SAVE_AS).isEnabled())
             self.assertFalse(self._db_action(DBAction.RESET).isEnabled())
@@ -236,12 +236,12 @@ class TestDatabaseMenu(unittest.TestCase):
 
             self.assertEqual(len(self._db_menu._paths_menu.actions()), 0)
 
-    def test_open_database_in_mem(self):
+    def test_open_collection_in_mem(self):
         with tempfile.TemporaryDirectory() as db_path:
             test_paths = test_utils.get_temp_files(20)
             db = test_utils.create_test_media_db(db_path, test_paths)
 
-            self._db_menu.show_database(db)
+            self._db_menu.show_collection(db)
             self.assertFalse(self._db_action(DBAction.SAVE).isEnabled())
             self.assertTrue(self._db_action(DBAction.SAVE_AS).isEnabled())
             self.assertFalse(self._db_action(DBAction.RESET).isEnabled())
@@ -255,15 +255,15 @@ class TestDatabaseMenu(unittest.TestCase):
 
             self.assertEqual(len(self._db_menu._paths_menu.actions()), len(test_paths))
 
-    def test_shut_database_in_mem(self):
+    def test_shut_collection_in_mem(self):
         with tempfile.TemporaryDirectory() as db_path:
             test_paths = test_utils.get_temp_files(20)
             db = test_utils.create_test_media_db(db_path, test_paths)
-            self._db_menu.show_database(db)
+            self._db_menu.show_collection(db)
             self.assertEqual(len(self._db_menu._paths_menu.actions()), len(test_paths))
 
             # Test
-            self._db_menu.shut_database()
+            self._db_menu.shut_collection()
             self.assertFalse(self._db_action(DBAction.SAVE).isEnabled())
             self.assertFalse(self._db_action(DBAction.SAVE_AS).isEnabled())
             self.assertFalse(self._db_action(DBAction.RESET).isEnabled())
@@ -288,8 +288,8 @@ class TestDatabaseMenu(unittest.TestCase):
         with tempfile.TemporaryDirectory() as db_path:
             db = test_utils.create_test_media_db(db_path, test_paths)
             db.save()
-            self._db_menu.database_event.connect(cb_func)
-            self._db_menu.show_database(db)
+            self._db_menu.collection_event.connect(cb_func)
+            self._db_menu.show_collection(db)
             self._db_action(DBAction.OPEN_SEARCH).trigger()
             self.assertTrue(self._callback_handled)
             self.assertFalse(self._db_action(DBAction.OPEN_SEARCH).isEnabled())
@@ -306,10 +306,10 @@ class TestDatabaseMenu(unittest.TestCase):
         with tempfile.TemporaryDirectory() as db_path:
             db = test_utils.create_test_media_db(db_path, test_paths)
             db.save()
-            self._db_menu.show_database(db)
+            self._db_menu.show_collection(db)
             # Since the close is disabled, you need to start a search before it can be closed
             self._db_action(DBAction.OPEN_SEARCH).trigger()
-            self._db_menu.database_event.connect(cb_func)
+            self._db_menu.collection_event.connect(cb_func)
             self._db_action(DBAction.SHUT_SEARCH).trigger()
             self.assertTrue(self._callback_handled)
             self.assertTrue(self._db_action(DBAction.OPEN_SEARCH).isEnabled())
@@ -319,14 +319,14 @@ class TestDatabaseMenu(unittest.TestCase):
         with tempfile.TemporaryDirectory() as db_path:
             test_paths = test_utils.get_temp_files(7)
             db = test_utils.create_test_media_db(db_path, test_paths)
-            self._db_menu.show_database(db)
+            self._db_menu.show_collection(db)
             self.assertEqual(self._db_menu.selected_paths, test_paths)
 
     def test_update_recents(self):
         with tempfile.TemporaryDirectory() as db_path:
             test_paths = test_utils.get_temp_files(7)
             db = test_utils.create_test_media_db(db_path, test_paths)
-            self._db_menu.show_database(db)
+            self._db_menu.show_collection(db)
             self.assertEqual(len(self._db_menu._history_menu.actions()), 0)
             self._db_menu.update_recents(test_utils.get_temp_files(3))
             self.assertEqual(len(self._db_menu._history_menu.actions()), 3)
@@ -335,7 +335,7 @@ class TestDatabaseMenu(unittest.TestCase):
         with tempfile.TemporaryDirectory() as db_path:
             test_paths = test_utils.get_temp_files(5)
             db = test_utils.create_test_media_db(db_path, test_paths)
-            self._db_menu.show_database(db)
+            self._db_menu.show_collection(db)
             self.assertEqual(len(self._db_menu._bookmarks_menu.actions()), 0)
             self._db_menu.update_bookmarks(test_utils.get_temp_files(4))
             self.assertEqual(len(self._db_menu._bookmarks_menu.actions()), 4)
@@ -349,9 +349,9 @@ class TestDatabaseMenu(unittest.TestCase):
         with tempfile.TemporaryDirectory() as db_path:
             test_paths = test_utils.get_temp_files(6)
             db = test_utils.create_test_media_db(db_path, test_paths)
-            self._db_menu.show_database(db)
+            self._db_menu.show_collection(db)
             self.assertEqual(len(self._db_menu._paths_menu.actions()), 6)
-            self._db_menu.database_event.connect(cb_func)
+            self._db_menu.collection_event.connect(cb_func)
             self._db_menu._paths_menu.actions()[0].trigger()
             self.assertTrue(self._callback_handled)
 
@@ -366,12 +366,12 @@ class TestDatabaseMenu(unittest.TestCase):
         with tempfile.TemporaryDirectory() as db_path:
             test_paths = test_utils.get_temp_files(7)
             db = test_utils.create_test_media_db(db_path, test_paths)
-            self._db_menu.show_database(db)
+            self._db_menu.show_collection(db)
             self.assertEqual(len(self._db_menu._history_menu.actions()), 0)
 
             self._db_menu.update_recents(hist_paths)
             self.assertEqual(len(self._db_menu._history_menu.actions()), 3)
-            self._db_menu.database_event.connect(cb_func)
+            self._db_menu.collection_event.connect(cb_func)
             self._db_menu._history_menu.actions()[0].trigger()
             self.assertTrue(self._callback_handled)
 
@@ -385,8 +385,8 @@ class TestDatabaseMenu(unittest.TestCase):
         with tempfile.TemporaryDirectory() as db_path:
             test_paths = test_utils.get_temp_files(9)
             db = test_utils.create_test_media_db(db_path, test_paths)
-            self._db_menu.show_database(db)
-            self._db_menu.database_event.connect(cb_func)
+            self._db_menu.show_collection(db)
+            self._db_menu.collection_event.connect(cb_func)
             self._db_action(DBAction.SAVE_AS).trigger() # Will trigger
             self._db_action(DBAction.SAVE).trigger() # Will not trigger as it's disabled for in-memory db
             self._db_action(DBAction.SHUT_DB).trigger() # Will trigger
@@ -404,8 +404,8 @@ class TestDatabaseMenu(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as db_path:
             db = test_utils.create_test_media_db(db_path, test_paths)
-            self._db_menu.show_database(db)
-            self._db_menu.database_event.connect(cb_func)
+            self._db_menu.show_collection(db)
+            self._db_menu.collection_event.connect(cb_func)
             self._db_action(DBAction.REFRESH_SELECTED).trigger()
             self.assertTrue(self._callback_handled)
 

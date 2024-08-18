@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import QPushButton, QDialogButtonBox, \
     QDockWidget, QCompleter, QLineEdit, QPlainTextEdit
 
 import app
-from app.database.ds import Database, HasDatabaseDisplaySupport
+from app.collection.ds import Collection, HasCollectionDisplaySupport
 from app.widgets.windowinfo import WindowInfo
 
 
@@ -18,7 +18,7 @@ from app.widgets.windowinfo import WindowInfo
 #
 # https://wiki.python.org/moin/PyQt/Python%20syntax%20highlighting
 
-def get_context_aware_completer(database: Database = None):
+def get_context_aware_completer(database: Collection = None):
     keywords = sorted(SQLHighlighter.ALL_KEYWORDS + database.tags if database is not None else [])
     _completer = QCompleter(keywords, None)
     sys_monospace_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont).family()
@@ -205,7 +205,7 @@ class FindWidget(QDockWidget, WindowInfo):
         return super().eventFilter(source, event)
 
 
-class QueryWidget(QDockWidget, WindowInfo, HasDatabaseDisplaySupport):
+class QueryWidget(QDockWidget, WindowInfo, HasCollectionDisplaySupport):
     query_event = pyqtSignal(str)
 
     def __init__(self, parent):
@@ -244,7 +244,7 @@ class QueryWidget(QDockWidget, WindowInfo, HasDatabaseDisplaySupport):
     def query(self):
         return self._query_text.toPlainText()
 
-    def show_database(self, database: Database):
+    def show_database(self, database: Collection):
         self._query_text.clear()
         ca_completer = get_context_aware_completer(database)
         self._query_text.set_completer(ca_completer)

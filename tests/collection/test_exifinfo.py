@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.database.exifinfo import ExifInfo, ExifInfoStatus
+from app.collection.exifinfo import ExifInfo, ExifInfoStatus
 
 
 class TestExifInfo(unittest.TestCase):

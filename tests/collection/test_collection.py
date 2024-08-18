@@ -1,33 +1,33 @@
 import tempfile
 import unittest
 
-from app.database import props
-from app.database.ds import Database, Properties, DatabaseNotFoundError
-from app.database.props import DBType
-from tests.database import test_utils
+from app.collection import props
+from app.collection.ds import Collection, Properties, CollectionNotFoundError
+from app.collection.props import DBType
+from tests.collection import test_utils
 
 
-class TestDatabase(unittest.TestCase):
+class TestCollection(unittest.TestCase):
 
     def test_create_default_paths_blank(self):
         try:
-            Database.create_in_memory(paths=[])
+            Collection.create_in_memory(paths=[])
         except ValueError as v:
-            self.assertEqual(str(v), "Database must have at least one path")
+            self.assertEqual(str(v), "Collection must have at least one path")
 
-    def test_create_default_database(self):
+    def test_create_default_collection(self):
         tmp_files = test_utils.get_temp_files(2)
-        db = Database.create_in_memory(paths=tmp_files)
+        db = Collection.create_in_memory(paths=tmp_files)
         self.assertEqual(db.type, DBType.IN_MEMORY)
         self.assertIsNone(db.save_path)
-        self.assertEqual(db.name, "default-db")
+        self.assertEqual(db.name, "default-collection")
         self.assertCountEqual(db.paths, tmp_files)
 
-    def test_open_database(self):
+    def test_open_collection(self):
         with tempfile.TemporaryDirectory() as db_path:
-            db = Database.create_in_memory(paths=test_utils.get_temp_files(2), save_path=db_path)
+            db = Collection.create_in_memory(paths=test_utils.get_temp_files(2), save_path=db_path)
             Properties.write(db)
-            p_db = Database.open_db(db_path)
+            p_db = Collection.open_db(db_path)
 
             self.assertEqual(db.name, p_db.name)
             self.assertEqual(db.save_path, p_db.save_path)
@@ -36,12 +36,12 @@ class TestDatabase(unittest.TestCase):
             self.assertEqual(db.created, p_db.created)
             self.assertEqual(db.updated, p_db.updated)
 
-    def test_save_database(self):
+    def test_save_collection(self):
         with tempfile.TemporaryDirectory() as db_path:
             db = test_utils.create_test_media_db(db_path)
             db.save()
 
-            p_db = Database.open_db(db.save_path)
+            p_db = Collection.open_db(db.save_path)
             self.assertEqual(db.name, p_db.name)
             self.assertEqual(db.save_path, p_db.save_path)
             self.assertEqual(db.paths, p_db.paths)
@@ -51,7 +51,7 @@ class TestDatabase(unittest.TestCase):
 
     def test_add_paths_dupe(self):
         tmp_files = test_utils.get_temp_files(3)
-        db = Database.create_in_memory(paths=tmp_files[:2])
+        db = Collection.create_in_memory(paths=tmp_files[:2])
         self.assertCountEqual(db.paths, tmp_files[:2])
         db.add_paths(tmp_files[2:])
 
@@ -60,7 +60,7 @@ class TestDatabase(unittest.TestCase):
     def test_key_creation(self):
         # Key = "//a/b/c"
         tmp_files = test_utils.get_temp_files(2)
-        db = Database.create_in_memory(paths=tmp_files)
+        db = Collection.create_in_memory(paths=tmp_files)
 
         key1 = db._create_path_key("//a/b/c")
         self.assertEqual(key1, "a__b__c.json")
@@ -71,27 +71,27 @@ class TestDatabase(unittest.TestCase):
     def test_validation(self):
         # Default DB with no paths
         try:
-            Database.create_in_memory(paths=[])
+            Collection.create_in_memory(paths=[])
         except ValueError as v:
-            self.assertEqual(str(v), "Database must have at least one path")
+            self.assertEqual(str(v), "Collection must have at least one path")
 
         tmp_files = test_utils.get_temp_files(2)
         # Non Default with missing save path
         try:
-            _ = Database(DBType.ON_DISK, "TEST", paths=tmp_files, created="abc", updated="xyz", save_path=None)
+            _ = Collection(DBType.ON_DISK, "TEST", paths=tmp_files, created="abc", updated="xyz", save_path=None)
         except ValueError as v1:
-            self.assertEqual(str(v1), "Database is missing a valid save path")
+            self.assertEqual(str(v1), "Collection is missing a valid save path")
 
         # Non Default db with invalid paths
         try:
-            _ = Database(DBType.ON_DISK, "TEST", paths=['a', 'b'], created="abc", updated="xyz",
-                         save_path=tempfile.tempdir)
+            _ = Collection(DBType.ON_DISK, "TEST", paths=['a', 'b'], created="abc", updated="xyz",
+                           save_path=tempfile.tempdir)
         except ValueError as v2:
-            self.assertEqual(str(v2), "Database path 'a' is is not a valid location")
+            self.assertEqual(str(v2), "Collection path 'a' is is not a valid location")
 
     def test_tags_lazy_get(self):
         tmp_files = test_utils.get_temp_files(2)
-        db = Database.create_in_memory(paths=tmp_files)
+        db = Collection.create_in_memory(paths=tmp_files)
         self.assertEqual(db._tags, [])
         db.data(tmp_files[0])
         self.assertEqual(db.tags,
@@ -107,14 +107,14 @@ class TestDatabase(unittest.TestCase):
                           'System:FilePermissions']
                          )
 
-    def test_database_not_found(self):
+    def test_collection_not_found(self):
         try:
-            _ = Database.open_db("foo/bar")
+            _ = Collection.open_db("foo/bar")
             self.fail("This should throw an error")
-        except DatabaseNotFoundError:
+        except CollectionNotFoundError:
             pass
 
-    def test_database_modification(self):
+    def test_collection_modification(self):
         with tempfile.TemporaryDirectory() as db_path:
             test_paths = test_utils.get_test_paths()
             db = test_utils.create_test_media_db(db_path, test_paths[:1])
@@ -127,10 +127,10 @@ class TestDatabase(unittest.TestCase):
     def test_invalid_db_path(self):
         with tempfile.TemporaryDirectory() as db_path:
             paths = test_utils.get_temp_files(2)
-            db = Database.create_in_memory(paths[:1], save_path=db_path)
+            db = Collection.create_in_memory(paths[:1], save_path=db_path)
             try:
                 db.data(paths[1])
-                self.fail("Request should fail as this path does not exist in the database")
+                self.fail("Request should fail as this path does not exist in the collection")
             except ValueError:
                 pass
 
@@ -207,13 +207,13 @@ class TestDatabase(unittest.TestCase):
             db = test_utils.create_test_media_db(db_path, test_paths[:1])
             try:
                 db.set_name("")
-                self.fail("Cannot set this name for the database")
+                self.fail("Cannot set this name for the collection")
             except ValueError:
                 pass
 
             try:
                 db.set_name(props.DB_DEFAULT_NAME)
-                self.fail("Cannot set this name for the database")
+                self.fail("Cannot set this name for the collection")
             except ValueError:
                 pass
 

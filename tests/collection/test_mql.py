@@ -1,8 +1,8 @@
 import unittest
 from pathlib import Path
 
-from app.database import mql
-from app.database.mql import QueryException
+from app.collection import mql
+from app.collection.mql import QueryException
 
 TEST_IMPLEMENTED_OPERATIONS_ONLY = True
 

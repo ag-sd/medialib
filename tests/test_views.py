@@ -6,9 +6,9 @@ from pathlib import Path
 from PyQt6.QtCore import Qt
 
 from app import views
-from app.database import props
+from app.collection import props
 from app.views import JsonView, ModelData, TableView
-from tests.database import test_utils
+from tests.collection import test_utils
 
 
 class JsonViewTests(unittest.TestCase):

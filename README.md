@@ -2,7 +2,7 @@
 A Collection Manager built on the excellent `exiftool`, written in QT
 
 ## Features
-MediaLib gets out of your way and shows you metadata information that's relevant to the files you are viewing. However, you can leverage its powerful database and SQL-like search tools to build large libraries of all your media with support for search, export and preview
+MediaLib gets out of your way and shows you metadata information that's relevant to the files you are viewing. However, you can leverage its powerful Collection and SQL-like search tools to build large libraries of all your media with support for search, export and preview
 - [x] Support for different representations (json, table)
 - [x] Support for different video, audio and image formats. For a full list of supported formats, run `exiftool -listf` on the command line
 
@@ -11,7 +11,7 @@ TODO
 
 ## TODO
 ### Currently work priority
-1. Rename database to Collection
+1. Rename Collection to Collection
 2. Rename Path to Directory
 3. File System View
 4. Support for really large collections
@@ -29,8 +29,8 @@ TODO
   - Preferred Views (Audio, Video, Image specific columns)
   - Default View
   - Support for search, export and preview
-  - Private database (Which cannot be bookmarked or show up in history)
-  - Save database
+  - Private Collection (Which cannot be bookmarked or show up in history)
+  - Save Collection
     - Storing fingerprints for images, videos and music
     - Custom `exiftool` Formats
 - Improve performance of views
@@ -38,7 +38,7 @@ TODO
 - Thumb view
 - Custom plugins per MimeType i.e Images: Dupe Finder
 - Nemo app integration
-- SQL searching of in-memory databases
+- SQL searching of in-memory Collections
 
 ### Done
 - [x] Remove toolbar and make it a menu instead
@@ -47,8 +47,8 @@ TODO
 - [x] Adjusting log levels for better logs
 - DB support
   - [x] Library View
-  - [x] Close Database
-  - Save database
+  - [x] Close Collection
+  - Save Collection
     - [x] DB Name
     - [x] DB Paths
 - [x] Showing user-selected fields and field presets
@@ -57,5 +57,5 @@ TODO
 - [x] Setup Coverage
 - [x] Component testing
 - [x] Fast load of JSON views
-- [x] Database operations to be atomic, so that the DB can be queried while updates/refreshes are taking place
+- [x] Collection operations to be atomic, so that the DB can be queried while updates/refreshes are taking place
 - [x] Dynamic Menus

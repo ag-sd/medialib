@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 
 import app
-from app.database.ds import Database, Properties
+from app.collection.ds import Collection
 from tests import test_app
 
 
@@ -24,7 +24,7 @@ def get_test_paths():
 
 
 def create_test_media_db(save_path: str, test_paths: list = get_test_paths()):
-    return Database.create_in_memory(test_paths, save_path)
+    return Collection.create_in_memory(test_paths, save_path)
 
 
 def launch_widget(widget):

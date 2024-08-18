@@ -13,20 +13,20 @@ import app
 import apputils
 from app import appsettings
 from app.actions import AppMenuBar, MediaLibAction, DBAction, ViewAction
-from app.database import exifinfo
-from app.database.ds import Database, DatabaseNotFoundError, CorruptedDatabaseError, HasDatabaseDisplaySupport, \
-    DatabaseQueryError
+from app.collection import exifinfo
+from app.collection.ds import Collection, CollectionNotFoundError, CorruptedCollectionError, HasCollectionDisplaySupport, \
+    CollectionQueryError
 from app.views import ViewType, ModelData, ModelManager
 from app.widgets import search
 
 
-class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
+class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
 
     def __init__(self, app_args: argparse.Namespace):
         """
         :param app_args: The arguments to start this app
             paths: The paths whose information should be shown
-            database: The database to open
+            collection: The collection to open
             view: The view to start this app with
         """
         super().__init__()
@@ -58,7 +58,7 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
         self.menubar.view_event.connect(self._view_event)
         self.menubar.db_event.connect(self._db_event)
         self.menubar.medialib_event.connect(self._medialib_event)
-        self.menubar.update_recents(appsettings.get_recently_opened_databases())
+        self.menubar.update_recents(appsettings.get_recently_opened_collections())
         self.menubar.update_bookmarks(appsettings.get_bookmarks())
 
         self.setMenuBar(self.menubar)
@@ -77,99 +77,100 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
         # Present App
         self.show()
 
-        # Configure database based on input args
-        # Check if a database is supplied
-        if app_args.database is not None:
-            app.logger.info(f"Loading database {app_args.database}")
-            self.database = Database.open_db(app_args.database)
+        # Configure collection based on input args
+        # Check if a collection is supplied
+        if app_args.collection is not None:
+            app.logger.info(f"Loading collection {app_args.collection}")
+            self.collection = Collection.open_db(app_args.collection)
         elif app_args.paths is not None:
             app.logger.info(f"Loading paths {app_args.paths}")
-            self.database = Database.create_in_memory(paths=app_args.paths)
+            self.collection = Collection.create_in_memory(paths=app_args.paths)
         else:
-            app.logger.warning("Neither a database or paths were provided. App is in reduced feature mode")
-            self.database = None
+            app.logger.warning("Neither a collection or paths were provided. App is in reduced feature mode")
+            self.collection = None
 
-        # Load the first entry from the database
-        if self.database is not None:
-            self.show_database(self.database)
+        # Load the first entry from the collection
+        if self.collection is not None:
+            self.show_collection(self.collection)
         app.logger.debug("Startup tasks completed. Ready.")
 
     def closeEvent(self, event):
-        if self.database:
-            self.shut_database()
+        if self.collection:
+            self.shut_collection()
         app.logger.debug(f"{app.__APP_NAME__} is exiting. Goodbye!")
         super().closeEvent(event)
 
-    def show_database(self, database: Database):
-        app.logger.debug("Load database and present data ...")
+    def show_collection(self, collection: Collection):
+        app.logger.debug("Load collection and present data ...")
         # Update Menubar
-        self.menubar.show_database(self.database)
+        self.menubar.show_collection(self.collection)
         # Update Search
         if self._sql_search_widget and self._sql_search_widget.isVisible():
-            self._sql_search_widget.show_database(database)
+            self._sql_search_widget.show_collection(collection)
         # Update Plugins
         for plugin in self._plugins:
-            if isinstance(plugin, HasDatabaseDisplaySupport):
-                plugin.show_database(self.database)
+            if isinstance(plugin, HasCollectionDisplaySupport):
+                plugin.show_collection(self.collection)
         # Update display
-        self.setWindowTitle(f"{self.database.name} : {app.__APP_NAME__}")
-        self._paths_changed(self.database.paths)
+        self.setWindowTitle(f"{self.collection.name} : {app.__APP_NAME__}")
+        self._paths_changed(self.collection.paths)
 
-    def shut_database(self):
-        if self.database:
-            app.logger.debug("Closing Database ...")
+    def shut_collection(self):
+        if self.collection:
+            app.logger.debug("Closing Collection ...")
             # Check if the db needs to be saved
-            if self.database.is_modified:
-                save_confirm = QMessageBox.question(self, f"CLose {self.database.name}",
-                                                    f"<p><b>The Database has changed</b></p>"
-                                                    f"Save changes to Database {self.database.name} before closing?")
+            if self.collection.is_modified:
+                save_confirm = QMessageBox.question(self, f"CLose {self.collection.name}",
+                                                    f"<p><b>The Collection has changed</b></p>"
+                                                    f"Save changes to Collection {self.collection.name} before closing?"
+                                                    )
                 if save_confirm == QMessageBox.StandardButton.Yes:
                     self._db_event(DBAction.SAVE, None)
             # Update Menubar
-            self.menubar.shut_database()
+            self.menubar.shut_collection()
             # Update Search
             if self._sql_search_widget and self._sql_search_widget.isVisible():
-                self._sql_search_widget.shut_database()
+                self._sql_search_widget.shut_collection()
             # Update Plugins
             for plugin in self._plugins:
-                if isinstance(plugin, HasDatabaseDisplaySupport):
-                    plugin.shut_database()
+                if isinstance(plugin, HasCollectionDisplaySupport):
+                    plugin.shut_collection()
             # Update display
             self.setWindowTitle(f"{app.__APP_NAME__}")
-            self.database = None
+            self.collection = None
 
     def _db_event(self, db_action, event_args):
         app.logger.debug(f"DB action triggered {db_action} with args {event_args}")
         match db_action:
             case DBAction.BOOKMARK:
                 bookmarks = appsettings.get_bookmarks()
-                current_db_is_bookmarked = self.database.save_path in bookmarks
+                current_db_is_bookmarked = self.collection.save_path in bookmarks
                 if current_db_is_bookmarked:
-                    app.logger.info(f"Removing {self.database.save_path} from bookmarks")
-                    bookmarks.remove(self.database.save_path)
+                    app.logger.info(f"Removing {self.collection.save_path} from bookmarks")
+                    bookmarks.remove(self.collection.save_path)
                 else:
-                    app.logger.info(f"Adding {self.database.save_path} to bookmarks")
-                    bookmarks.append(self.database.save_path)
+                    app.logger.info(f"Adding {self.collection.save_path} to bookmarks")
+                    bookmarks.append(self.collection.save_path)
 
                 appsettings.set_bookmarks(bookmarks)
                 self.menubar.update_bookmarks(bookmarks)
 
             case DBAction.SAVE:
-                if self.database.save_path is None:
-                    app.logger.warning("Unable to save this database as save path is not provided. Requesting one now")
+                if self.collection.save_path is None:
+                    app.logger.warning("Unable to save this collection as save path isn't provided. Requesting one now")
                     self._db_event(DBAction.SAVE_AS, event_args)
                 else:
-                    self._do_work_in_thread(self.database.save, title="Saving database please wait...")
+                    self._do_work_in_thread(self.collection.save, title="Saving collection please wait...")
 
             case DBAction.SAVE_AS:
                 # First get save location
                 save_location = QFileDialog.getExistingDirectory(self, caption=db_action,
                                                                  directory=str(appsettings.get_config_dir()))
-                # Then configure the database
+                # Then configure the collection
                 if save_location != "":
                     app.logger.debug(f"DB will be saved to {save_location}")
-                    self._do_work_in_thread(self.database.save, kwargs={"save_path": save_location},
-                                            title="Saving database please wait...")
+                    self._do_work_in_thread(self.collection.save, kwargs={"save_path": save_location},
+                                            title="Saving collection please wait...")
                 else:
                     app.logger.debug("User canceled save action")
 
@@ -183,18 +184,19 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
                     open_location = event_args
                 # Then open the supplied location if its valid
                 if open_location != "":
-                    self._open_database(open_location)
+                    self._open_collection(open_location)
 
             case DBAction.SHUT_DB:
-                self.shut_database()
+                self.shut_collection()
 
             case DBAction.RESET:
-                self.show_database(self.database)
+                self.show_collection(self.collection)
 
             case DBAction.REFRESH:
-                self._do_work_in_thread(self._refresh_paths, kwargs={"paths": self.database.paths},
-                                        title=f"Refreshing database...", success_msg="Database refreshed successfully")
-                self.show_database(self.database)
+                self._do_work_in_thread(self._refresh_paths, kwargs={"paths": self.collection.paths},
+                                        title=f"Refreshing collection...",
+                                        success_msg="Collection refreshed successfully")
+                self.show_collection(self.collection)
 
             case DBAction.REFRESH_SELECTED:
                 selected_paths = event_args
@@ -208,7 +210,7 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
 
             case DBAction.OPEN_SEARCH:
                 self._sql_search_widget = search.QueryWidget(self)
-                self._sql_search_widget.show_database(self.database)
+                self._sql_search_widget.show_collection(self.collection)
                 self._sql_search_widget.query_event.connect(self._sql_search_widget__query_event)
                 self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._sql_search_widget)
                 self._sql_search_widget.setVisible(True)
@@ -216,11 +218,11 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
 
             case DBAction.SHUT_SEARCH:
                 if self._sql_search_widget is not None:
-                    self._sql_search_widget.shut_database()
+                    self._sql_search_widget.shut_collection()
                     self._sql_search_widget.query_event.disconnect()
                     self.removeDockWidget(self._sql_search_widget)
                     self._sql_search_widget = None
-                    self._paths_changed(_paths=self.menubar.get_selected_database_paths())
+                    self._paths_changed(_paths=self.menubar.get_selected_collection_paths())
 
             case _:
                 app.logger.warning(f"Not Implemented: {db_action}")
@@ -232,15 +234,15 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
                 paths = self._get_new_path(is_dir=True if medialib_action == MediaLibAction.OPEN_PATH else False)
                 if len(paths) > 0:
                     app.logger.debug(f"User supplied {len(paths)} additional paths {paths}")
-                    if self.database is None:
-                        # Add to new database
-                        self.database = Database.create_in_memory(paths)
+                    if self.collection is None:
+                        # Add to new collection
+                        self.collection = Collection.create_in_memory(paths)
                     else:
-                        # Add to existing database
-                        self.database.add_paths(paths)
-                    # Load Database
-                    self.show_database(self.database)
-                    self._paths_changed(self.database.paths)
+                        # Add to existing collection
+                        self.collection.add_paths(paths)
+                    # Load Collection
+                    self.show_collection(self.collection)
+                    self._paths_changed(self.collection.paths)
                     self.statusBar().showMessage("Ready.", msecs=2000)
                 else:
                     app.logger.debug(f"Cancel action clicked, no paths supplied")
@@ -277,33 +279,33 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
             self.current_view.find_text(text)
 
     def _sql_search_widget__query_event(self, query):
-        app.logger.debug("Searching database with paths provided")
+        app.logger.debug("Searching collection with paths provided")
         try:
-            search_paths = self.menubar.get_selected_database_paths()
-            results = self.database.query(query, search_paths)
+            search_paths = self.menubar.get_selected_collection_paths()
+            results = self.collection.query(query, search_paths)
             model_data = []
             for search_result in results.data:
                 if len(search_result.results) > 0:
                     model_data.append(ModelData(data=search_result.results, path=search_result.path))
             self._display_model_data(model_data, results.searched_paths, results.columns)
-        except DatabaseQueryError as d:
+        except CollectionQueryError as d:
             apputils.show_exception(self, d)
 
     def _refresh_paths(self, paths):
-        self.database.clear_cache()
+        self.collection.clear_cache()
         for path in paths:
-            self.database.data(path, refresh=True)
+            self.collection.data(path, refresh=True)
 
-    def _open_database(self, db_path: str):
+    def _open_collection(self, db_path: str):
         try:
-            self.database = Database.open_db(db_path)
-            self.show_database(self.database)
-            recents = appsettings.get_recently_opened_databases()
+            self.collection = Collection.open_db(db_path)
+            self.show_collection(self.collection)
+            recents = appsettings.get_recently_opened_collections()
             appsettings.push_to_list(db_path, recents, appsettings.get_recent_max_size())
-            appsettings.set_recently_opened_databases(recents)
+            appsettings.set_recently_opened_collections(recents)
             self.menubar.update_recents(recents)
 
-        except (DatabaseNotFoundError, CorruptedDatabaseError) as e:
+        except (CollectionNotFoundError, CorruptedCollectionError) as e:
             apputils.show_exception(self, e)
 
     def _paths_changed(self, _paths):
@@ -311,14 +313,14 @@ class MediaLibApp(QMainWindow, HasDatabaseDisplaySupport):
         model_data = []
         try:
             for path in _paths:
-                self._do_work_in_thread(self.database.data, {"path": str(path)},
+                self._do_work_in_thread(self.collection.data, {"path": str(path)},
                                         title=f"Loading {len(_paths)} paths",
                                         success_msg=f"{len(_paths)} paths were loaded successfully")
                 # Data is added to cache, so pick it up from cache
-                data = ModelData(data=self.database.data(path=str(path)), path=path)
+                data = ModelData(data=self.collection.data(path=str(path)), path=path)
                 model_data.append(data)
-            self._display_model_data(model_data, _paths, self.database.tags)
-        except DatabaseQueryError as d:
+            self._display_model_data(model_data, _paths, self.collection.tags)
+        except CollectionQueryError as d:
             apputils.show_exception(self, d)
         except Exception as exception:
             apputils.show_exception(self, exception)
@@ -404,14 +406,14 @@ if __name__ == '__main__':
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--paths", metavar="p", type=str, nargs="*", help="Path(s) to read the exif data from")
-    group.add_argument("--database", metavar="db", type=str, help="The full path of the database to open")
+    group.add_argument("--collection", metavar="db", type=str, help="The full path of the collection to open")
 
     parser.add_argument("--view", metavar="v", type=str, default='table', help="Select the view to load")
 
     args = parser.parse_args()
-    app.logger.debug(f"Input args supplied     view: {args.view}")
-    app.logger.debug(f"Input args supplied    paths: {args.paths}")
-    app.logger.debug(f"Input args supplied database: {args.database}")
+    app.logger.debug(f"Input args supplied       view: {args.view}")
+    app.logger.debug(f"Input args supplied      paths: {args.paths}")
+    app.logger.debug(f"Input args supplied collection: {args.collection}")
 
     app.logger.debug(f"############################### TESTING CODE HERE ###############################")
 
