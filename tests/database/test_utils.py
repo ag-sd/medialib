@@ -16,12 +16,6 @@ def get_temp_files(count) -> list:
     return files
 
 
-def get_saved_db(save_path, num_files):
-    db = Database.create_in_memory(paths=get_temp_files(num_files), save_path=save_path)
-    Properties.write(db)
-    return Properties.as_database(save_path)
-
-
 def get_test_paths():
     return [
         str(Path(__file__).parent / ".." / "resources" / "media/audio"),
