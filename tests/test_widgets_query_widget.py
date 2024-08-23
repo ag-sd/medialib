@@ -4,7 +4,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QDialogButtonBox
 
-from app.widgets.search import QueryWidget
+from app.plugins.search import QueryWidget
 
 
 class QueryWidgetTester(unittest.TestCase):
@@ -14,7 +14,7 @@ class QueryWidgetTester(unittest.TestCase):
         self._query_widget = QueryWidget(None)
 
     def test_statustip(self):
-        self.assertEqual(self._query_widget.statustip, "Search this database using SQL statements")
+        self.assertEqual(self._query_widget.statustip, "Search this collection using SQL statements")
 
     def test_icon(self):
         self.assertEqual(self._query_widget.icon.name(), "folder-saved-search")

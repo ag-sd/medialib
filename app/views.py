@@ -256,15 +256,6 @@ class FileSystemView(QTreeView, ModelManager):
                 tree[branch] = {}
             return tree[branch]
 
-        @staticmethod
-        def _standard_item(text, data, icon: QIcon = None, file_data: FileData = None):
-            std_item = QStandardItem(text)
-            std_item.setData(data, Qt.ItemDataRole.UserRole)
-            if isinstance(icon, QIcon):
-                std_item.setIcon(icon)
-            ModelManager.set_file_data(std_item, file_data)
-            return std_item
-
 
 class JsonView(QTreeView, ModelManager):
     file_click = pyqtSignal(FileData)
@@ -527,8 +518,8 @@ class TableView(QTableView, ModelManager):
     def set_model(self, model_data: list, fields: list):
         p_model = self.TableModel(model_data, fields)
         self.setModel(self._create_proxy_model(p_model))
-        if len(fields) < 20 or self.model().rowCount() < 20:
-            self.resizeColumnsToContents()
+        # if len(fields) < 20 or self.model().rowCount() < 20:
+        #     self.resizeColumnsToContents()
 
 
 class ViewType(Enum):
@@ -554,21 +545,18 @@ class ViewType(Enum):
     def icon(self):
         return self._icon_name
 
-
-import sys
-from PyQt6.QtWidgets import QApplication
-from app.collection.ds import Collection
-test_app = QApplication(sys.argv)
-_fs_view = FileSystemView(parent=None)
-
-db = Collection.open_db("/mnt/dev/testing/Medialib/image-picka/")
-model_data = []
-for path in db.paths:
-    model_data.append(ModelData(data=db.data(path), path=path))
-
-_fs_view.set_model(model_data, db.tags)
-_fs_view.setMinimumSize(500, 1000)
-_fs_view.show()
-sys.exit(test_app.exec())
-
-
+# import sys
+# from PyQt6.QtWidgets import QApplication
+# from app.collection.ds import Collection
+# test_app = QApplication(sys.argv)
+# _fs_view = FileSystemView(parent=None)
+#
+# db = Collection.open_db("/mnt/dev/testing/Medialib/image-picka/")
+# model_data = []
+# for path in db.paths:
+#     model_data.append(ModelData(data=db.data(path), path=path))
+#
+# _fs_view.set_model(model_data, db.tags)
+# _fs_view.setMinimumSize(500, 1000)
+# _fs_view.show()
+# sys.exit(test_app.exec())

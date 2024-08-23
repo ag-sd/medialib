@@ -80,7 +80,7 @@ class FileSystemViewTests(unittest.TestCase):
     def setUp(self):
         self._fs_view = FileSystemView(parent=None)
 
-    def test_start_as_gui(self):
+    def test_lazy_loading(self):
         with tempfile.TemporaryDirectory() as db_path:
             test_paths = test_utils.get_test_paths()
             db = test_utils.create_test_media_db(db_path, test_paths)
@@ -89,7 +89,38 @@ class FileSystemViewTests(unittest.TestCase):
                 model_data.append(ModelData(data=db.data(path), path=path))
 
             self._fs_view.set_model(model_data, db.tags)
-            test_utils.launch_widget(self._fs_view)
+            self.assertEqual(self._fs_view.model().rowCount(), 2)
+            audio_path = self._fs_view.model().index(0, 0)
+            self.assertTrue(self._fs_view.model().hasChildren(audio_path))
+            self.assertTrue(self._fs_view.model().canFetchMore(audio_path))
+            self.assertEqual(self._fs_view.model().rowCount(audio_path), 0)  # Item has not been expanded yet
+            self._fs_view.model().fetchMore(audio_path)
+            self.assertEqual(self._fs_view.model().rowCount(audio_path), 4)  # Item has now been expanded
+
+    def test_lazy_loading_deeper_hierarchy(self):
+        with tempfile.TemporaryDirectory() as db_path:
+            test_paths = test_utils.get_test_root()
+            db = test_utils.create_test_media_db(db_path, test_paths)
+            model_data = []
+            for path in db.paths:
+                model_data.append(ModelData(data=db.data(path), path=path))
+
+            self._fs_view.set_model(model_data, db.tags)
+            self.assertEqual(self._fs_view.model().rowCount(), 1)
+            root_path = self._fs_view.model().index(0, 0)
+            self.assertTrue(self._fs_view.model().hasChildren(root_path))
+            self.assertTrue(self._fs_view.model().canFetchMore(root_path))
+            self.assertEqual(self._fs_view.model().rowCount(root_path), 0)  # Item has not been expanded yet
+            self._fs_view.model().fetchMore(root_path)
+            self.assertEqual(self._fs_view.model().rowCount(root_path), 2)  # Item has now been expanded
+
+    def test_no_data(self):
+        model_data = []
+        self._fs_view.set_model(model_data, ["X", "A", props.FIELD_FILE_NAME])
+        self.assertEqual(self._fs_view.model().rowCount(), 0)
+        self.assertEqual(self._fs_view.model().columnCount(), 1)
+        self.assertEqual(self._fs_view.model().headerData(0, Qt.Orientation.Horizontal),
+                         views._NO_DATA_MESSAGE)
 
 
 class TableViewTests(unittest.TestCase):
@@ -127,6 +158,3 @@ class TableViewTests(unittest.TestCase):
         self.assertEqual(self._table_view.model().columnCount(), 1)
         self.assertEqual(self._table_view.model().headerData(0, Qt.Orientation.Horizontal),
                          views._NO_DATA_MESSAGE)
-
-
-

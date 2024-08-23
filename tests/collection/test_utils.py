@@ -23,6 +23,12 @@ def get_test_paths():
     ]
 
 
+def get_test_root():
+    return [
+        str(Path(__file__).parent / ".." / "resources" / "media"),
+    ]
+
+
 def create_test_media_db(save_path: str, test_paths: list = get_test_paths()):
     return Collection.create_in_memory(test_paths, save_path)
 
@@ -35,7 +41,7 @@ def launch_widget(widget):
 
 class CallbackHandler:
 
-    def __init__(self, event, callback=None,expects_callback=True, callback_count=1):
+    def __init__(self, event, callback=None, expects_callback=True, callback_count=1):
         self._callback_called = False
         self._callback_count = callback_count
         self._callback = callback

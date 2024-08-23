@@ -1,11 +1,15 @@
+import logging
 import tempfile
 import unittest
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QWidget, QWidgetAction
+from PyQt6.QtWidgets import QWidget, QWidgetAction, QDockWidget
 
+import app
 from app import actions
-from app.actions import ViewMenu, HelpMenu, MediaLibAction, FileMenu, CollectionMenu, DBAction
+from app.actions import ViewMenu, HelpMenu, MediaLibAction, FileMenu, CollectionMenu, DBAction, AppMenuBar
+from app.plugins.framework import WindowInfo
 from app.views import ViewType
 from tests.collection import test_utils
 from tests.collection.test_utils import CallbackHandler
@@ -52,11 +56,12 @@ class TestViewMenu(unittest.TestCase):
         _actions = list(self._view_menu.actions())
         self.assertTrue(_actions[0].property("view-action"))
         self.assertTrue(_actions[1].property("view-action"))
-        self.assertTrue(_actions[2].isSeparator())
-        self.assertEqual(_actions[3].text(), "All Fields")
-        self.assertEqual(_actions[4].text(), "Preset Views")
+        self.assertTrue(_actions[2].property("view-action"))
+        self.assertTrue(_actions[3].isSeparator())
+        self.assertEqual(_actions[4].text(), "All Fields")
+        self.assertEqual(_actions[5].text(), "Preset Views")
 
-        self.assertEqual(len(_actions), 5)
+        self.assertEqual(len(_actions), 6)
 
     def test_show_collection_image_files(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -104,23 +109,6 @@ class TestViewMenu(unittest.TestCase):
         self.assertTrue(self._view_menu.actions()[0].isEnabled())
         self.assertTrue(self._view_menu.actions()[1].isEnabled())
 
-    # def test_view_event_field_change(self):
-    #     def callback():
-    #         print("Hello World")
-    #
-    #     with tempfile.TemporaryDirectory() as db_path:
-    #         test_paths = test_utils.get_test_paths()
-    #         # Audio File
-    #         db = test_utils.create_test_media_db(db_path, test_paths[1:])
-    #         db.save()
-    #         self._view_menu.show_collection(db)
-    #         cb = CallbackHandler(self._view_menu.view_event, expects_callback=True, callback=callback)
-    #         self._view_menu._view_menu_all_fields.actions()[0].trigger()
-    #         self.assertTrue(cb.callback_handled_correctly)
-    #
-    #
-    #
-
     def test_view_event_raised(self):
         cb = CallbackHandler(self._view_menu.view_event, expects_callback=True, callback_count=2)
         self._view_menu.actions()[0].trigger()
@@ -141,6 +129,22 @@ class TestHelpMenu(unittest.TestCase):
         self.assertEqual(_actions[3].text(), MediaLibAction.ABOUT)
 
         self.assertEqual(len(_actions), 4)
+
+    def test_log_level_change_w(self):
+        self._help_menu._log_level_changed(self._help_menu.LOG_WARNING)
+        self.assertEqual(logging.WARNING, app.logger.level)
+
+    def test_log_level_change_i(self):
+        self._help_menu._log_level_changed(self._help_menu.LOG_INFO)
+        self.assertEqual(logging.INFO, app.logger.level)
+
+    def test_log_level_change_d(self):
+        self._help_menu._log_level_changed(self._help_menu.LOG_DEBUG)
+        self.assertEqual(logging.DEBUG, app.logger.level)
+
+    def test_log_level_change_e(self):
+        self._help_menu._log_level_changed(self._help_menu.LOG_ERROR)
+        self.assertEqual(logging.ERROR, app.logger.level)
 
 
 class TestFileMenu(unittest.TestCase):
@@ -179,20 +183,19 @@ class TestCollectionMenu(unittest.TestCase):
         self.assertEqual(_actions[1].text(), DBAction.SAVE_AS)
         self.assertEqual(_actions[2].text(), DBAction.SHUT_DB)
         self.assertTrue(_actions[3].isSeparator())
-        self.assertEqual(_actions[4].text(), DBAction.OPEN_SEARCH)
-        self.assertEqual(_actions[5].text(), DBAction.SHUT_SEARCH)
-        self.assertTrue(_actions[6].isSeparator())
-        self.assertEqual(_actions[7].text(), DBAction.REFRESH)
-        self.assertEqual(_actions[8].text(), DBAction.REFRESH_SELECTED)
-        self.assertEqual(_actions[9].text(), DBAction.RESET)
-        self.assertEqual(_actions[10].text(), DBAction.BOOKMARK)
-        self.assertTrue(_actions[11].isSeparator())
-        self.assertEqual(_actions[12].text(), CollectionMenu._MENU_DB_PATHS)
-        self.assertTrue(_actions[13].isSeparator())
-        self.assertEqual(_actions[14].text(), DBAction.OPEN_DB)
-        self.assertTrue(_actions[15].isSeparator())
-        self.assertEqual(_actions[16].text(), CollectionMenu._MENU_DB_HISTORY)
-        self.assertEqual(_actions[17].text(), CollectionMenu._MENU_DB_BOOKMARKS)
+        self.assertEqual(_actions[4].text(), DBAction.REFRESH)
+        self.assertEqual(_actions[5].text(), DBAction.REFRESH_SELECTED)
+        self.assertEqual(_actions[6].text(), DBAction.RESET)
+        self.assertEqual(_actions[7].text(), DBAction.BOOKMARK)
+        self.assertTrue(_actions[8].isSeparator())
+        self.assertEqual(_actions[9].text(), CollectionMenu._MENU_DB_PATHS)
+        self.assertTrue(_actions[10].isSeparator())
+        self.assertEqual(_actions[11].text(), DBAction.OPEN_DB)
+        self.assertTrue(_actions[12].isSeparator())
+        self.assertEqual(_actions[13].text(), CollectionMenu._MENU_DB_HISTORY)
+        self.assertEqual(_actions[14].text(), CollectionMenu._MENU_DB_BOOKMARKS)
+
+        self.assertEqual(len(_actions), 15)
 
     def test_open_collection_on_disk(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -207,9 +210,7 @@ class TestCollectionMenu(unittest.TestCase):
             self.assertTrue(self._db_action(DBAction.REFRESH_SELECTED).isEnabled())
             self.assertTrue(self._db_action(DBAction.BOOKMARK).isEnabled())
             self.assertTrue(self._db_action(DBAction.SHUT_DB).isEnabled())
-            self.assertTrue(self._db_action(DBAction.OPEN_SEARCH).isEnabled())
             self.assertTrue(self._db_menu._paths_menu.isEnabled())
-            self.assertFalse(self._db_action(DBAction.SHUT_SEARCH).isEnabled())
 
             self.assertEqual(len(self._db_menu._paths_menu.actions()), len(test_paths))
 
@@ -230,9 +231,7 @@ class TestCollectionMenu(unittest.TestCase):
             self.assertFalse(self._db_action(DBAction.REFRESH_SELECTED).isEnabled())
             self.assertFalse(self._db_action(DBAction.BOOKMARK).isEnabled())
             self.assertFalse(self._db_action(DBAction.SHUT_DB).isEnabled())
-            self.assertFalse(self._db_action(DBAction.OPEN_SEARCH).isEnabled())
             self.assertFalse(self._db_menu._paths_menu.isEnabled())
-            self.assertFalse(self._db_action(DBAction.SHUT_SEARCH).isEnabled())
 
             self.assertEqual(len(self._db_menu._paths_menu.actions()), 0)
 
@@ -249,9 +248,7 @@ class TestCollectionMenu(unittest.TestCase):
             self.assertTrue(self._db_action(DBAction.REFRESH_SELECTED).isEnabled())
             self.assertFalse(self._db_action(DBAction.BOOKMARK).isEnabled())
             self.assertTrue(self._db_action(DBAction.SHUT_DB).isEnabled())
-            self.assertFalse(self._db_action(DBAction.OPEN_SEARCH).isEnabled())
             self.assertTrue(self._db_menu._paths_menu.isEnabled())
-            self.assertFalse(self._db_action(DBAction.SHUT_SEARCH).isEnabled())
 
             self.assertEqual(len(self._db_menu._paths_menu.actions()), len(test_paths))
 
@@ -271,49 +268,9 @@ class TestCollectionMenu(unittest.TestCase):
             self.assertFalse(self._db_action(DBAction.REFRESH_SELECTED).isEnabled())
             self.assertFalse(self._db_action(DBAction.BOOKMARK).isEnabled())
             self.assertFalse(self._db_action(DBAction.SHUT_DB).isEnabled())
-            self.assertFalse(self._db_action(DBAction.OPEN_SEARCH).isEnabled())
             self.assertFalse(self._db_menu._paths_menu.isEnabled())
-            self.assertFalse(self._db_action(DBAction.SHUT_SEARCH).isEnabled())
 
             self.assertEqual(len(self._db_menu._paths_menu.actions()), 0)
-
-    def test_open_search(self):
-        test_paths = test_utils.get_test_paths()
-
-        def cb_func(action, event_args):
-            self.assertEqual(action, DBAction.OPEN_SEARCH)
-            self.assertEqual(event_args, test_paths)
-            self._callback_handled = True
-
-        with tempfile.TemporaryDirectory() as db_path:
-            db = test_utils.create_test_media_db(db_path, test_paths)
-            db.save()
-            self._db_menu.collection_event.connect(cb_func)
-            self._db_menu.show_collection(db)
-            self._db_action(DBAction.OPEN_SEARCH).trigger()
-            self.assertTrue(self._callback_handled)
-            self.assertFalse(self._db_action(DBAction.OPEN_SEARCH).isEnabled())
-            self.assertTrue(self._db_action(DBAction.SHUT_SEARCH).isEnabled())
-
-    def test_shut_search(self):
-        test_paths = test_utils.get_test_paths()
-
-        def cb_func(action, event_args):
-            self.assertEqual(action, DBAction.SHUT_SEARCH)
-            self.assertEqual(event_args, test_paths)
-            self._callback_handled = True
-
-        with tempfile.TemporaryDirectory() as db_path:
-            db = test_utils.create_test_media_db(db_path, test_paths)
-            db.save()
-            self._db_menu.show_collection(db)
-            # Since the close is disabled, you need to start a search before it can be closed
-            self._db_action(DBAction.OPEN_SEARCH).trigger()
-            self._db_menu.collection_event.connect(cb_func)
-            self._db_action(DBAction.SHUT_SEARCH).trigger()
-            self.assertTrue(self._callback_handled)
-            self.assertTrue(self._db_action(DBAction.OPEN_SEARCH).isEnabled())
-            self.assertFalse(self._db_action(DBAction.SHUT_SEARCH).isEnabled())
 
     def test_selected_paths(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -411,3 +368,97 @@ class TestCollectionMenu(unittest.TestCase):
 
     def _db_action(self, action_name):
         return actions._find_action(action_name, self._db_menu.actions())
+
+
+class TestAppMenuBar(unittest.TestCase):
+
+    def setUp(self):
+        self._menu = AppMenuBar()
+
+    def test_update_recents(self):
+        self._menu.update_recents(["1", "2", "4"])
+        self.assertEqual(3, len(self._menu._db_menu._history_menu.actions()))
+
+    def test_update_bookmarks(self):
+        self._menu.update_bookmarks(["1", "2", "4"])
+        self.assertEqual(3, len(self._menu._db_menu._bookmarks_menu.actions()))
+
+    def test_show_collection(self):
+        with tempfile.TemporaryDirectory() as db_path:
+            test_paths = test_utils.get_test_paths()
+            # Image File
+            db = test_utils.create_test_media_db(db_path, test_paths)
+            db.save()
+
+            self._menu.show_collection(db)
+
+            self.assertTrue(self._db_action(DBAction.SAVE).isEnabled())
+            self.assertTrue(self._db_action(DBAction.SAVE_AS).isEnabled())
+            self.assertTrue(self._db_action(DBAction.RESET).isEnabled())
+            self.assertTrue(self._db_action(DBAction.REFRESH).isEnabled())
+            self.assertTrue(self._db_action(DBAction.REFRESH_SELECTED).isEnabled())
+            self.assertTrue(self._db_action(DBAction.BOOKMARK).isEnabled())
+            self.assertTrue(self._db_action(DBAction.SHUT_DB).isEnabled())
+            self.assertTrue(self._menu._db_menu._paths_menu.isEnabled())
+            self.assertEqual(len(self._menu._db_menu._paths_menu.actions()), len(test_paths))
+
+            self.assertEqual(len(list(self._menu._view_menu._view_menu_all_fields.actions())), 13)
+            # Presets are available
+            self.assertEqual(len(list(self._menu._view_menu._view_menu_presets.actions())), 3)
+
+    def test_shut_collection(self):
+        with tempfile.TemporaryDirectory() as db_path:
+            test_paths = test_utils.get_test_paths()
+            # Image File
+            db = test_utils.create_test_media_db(db_path, test_paths)
+            db.save()
+
+            self._menu.show_collection(db)
+            self.assertEqual(len(self._menu._db_menu._paths_menu.actions()), len(test_paths))
+            self.assertEqual(len(list(self._menu._view_menu._view_menu_all_fields.actions())), 13)
+
+            # Actual Test
+            self._menu.shut_collection()
+            self.assertFalse(self._db_action(DBAction.SAVE).isEnabled())
+            self.assertFalse(self._db_action(DBAction.SAVE_AS).isEnabled())
+            self.assertFalse(self._db_action(DBAction.RESET).isEnabled())
+            self.assertFalse(self._db_action(DBAction.REFRESH).isEnabled())
+            self.assertFalse(self._db_action(DBAction.REFRESH_SELECTED).isEnabled())
+            self.assertFalse(self._db_action(DBAction.BOOKMARK).isEnabled())
+            self.assertFalse(self._db_action(DBAction.SHUT_DB).isEnabled())
+            self.assertFalse(self._menu._db_menu._paths_menu.isEnabled())
+            self.assertEqual(len(self._menu._db_menu._paths_menu.actions()), 0)
+
+            self.assertFalse(self._menu._view_menu._view_menu_all_fields.isEnabled())
+            self.assertFalse(self._menu._view_menu._view_menu_presets.isEnabled())
+
+    def test_get_selected_paths(self):
+        with tempfile.TemporaryDirectory() as db_path:
+            test_paths = test_utils.get_test_paths()
+            # Image File
+            db = test_utils.create_test_media_db(db_path, test_paths)
+            db.save()
+
+            self._menu.show_collection(db)
+            self.assertEqual(2, len(self._menu.get_selected_collection_paths()))
+
+    def test_register_plugin(self):
+        class DummyPl(QDockWidget, WindowInfo):
+            @property
+            def dockwidget_area(self):
+                return Qt.DockWidgetArea.RightDockWidgetArea
+
+            @property
+            def name(self) -> str:
+                return "Test Plugin"
+
+            @property
+            def statustip(self) -> str:
+                return "Test Plugin"
+
+        self.assertEqual(1, len(self._menu._window_menu.children()))
+        self._menu.register_plugin(DummyPl())
+
+    def _db_action(self, action_name):
+        return actions._find_action(action_name, self._menu._db_menu.actions())
+

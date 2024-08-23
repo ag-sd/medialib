@@ -7,7 +7,7 @@ from PyQt6.QtGui import QAction, QIcon, QActionGroup
 from PyQt6.QtWidgets import QMenuBar, QMenu, QWidgetAction, QCheckBox
 
 import app
-from app import views, appsettings
+from app import appsettings, apputils
 from app.collection import props
 from app.collection.ds import Collection, HasCollectionDisplaySupport
 from app.collection.props import DBType
@@ -101,8 +101,6 @@ class DBAction(StrEnum):
     OPEN_DB = "Open Collection..."
     SHUT_DB = "Close Collection"
     PATH_CHANGE = "Path Change"
-    OPEN_SEARCH = "Search this Collection"
-    SHUT_SEARCH = "Close Search"
 
 
 class ViewAction(StrEnum):
@@ -268,8 +266,6 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
         self._save.setEnabled(not collection.type == DBType.IN_MEMORY)
         self._reset.setEnabled(not collection.type == DBType.IN_MEMORY)
         self._add_bookmark.setEnabled(not collection.type == DBType.IN_MEMORY)
-        self._open_search.setEnabled(not collection.type == DBType.IN_MEMORY)
-        self._shut_search.setEnabled(False)
         self._save_as.setEnabled(True)
         self._refresh.setEnabled(True)
         self._selective_refresh.setEnabled(True)
@@ -279,7 +275,7 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
         _clear_menu(self._paths_menu)
         for count, item in enumerate(collection.paths):
             self._paths_menu.addAction(_create_action(self, item, func=self._paths_change_event,
-                                                      icon=views.get_mime_type_icon_name(item),
+                                                      icon=apputils.get_mime_type_icon_name(item),
                                                       shortcut=f"Ctrl+{count + 1}" if count < 9 else None, checked=True)
                                        )
 
@@ -291,14 +287,11 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
         self._selective_refresh.setEnabled(False)
         self._add_bookmark.setEnabled(False)
         self._shut_db.setEnabled(False)
-        self._open_search.setEnabled(False)
-        self._shut_search.setEnabled(False)
         _clear_menu(self._paths_menu)
         self._paths_menu.setEnabled(False)
 
         # Raise Cleanup Events
         self.collection_event.emit(DBAction.PATH_CHANGE, [])
-        self.collection_event.emit(DBAction.SHUT_SEARCH, None)
 
     @property
     def selected_paths(self) -> list:
@@ -326,12 +319,6 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
         self._shut_db = _create_action(self, DBAction.SHUT_DB, shortcut="Ctrl+W", icon="document-close",
                                        tooltip="Close the collection, saving it if required",
                                        func=self._db_event, enabled=False)
-        self._shut_search = _create_action(self, DBAction.SHUT_SEARCH, shortcut="Ctrl+Shift+W", enabled=False,
-                                           tooltip="Close the search results and switch back to collection browsing",
-                                           func=self._db_search_event, icon="view-close-symbolic")
-        self._open_search = _create_action(self, DBAction.OPEN_SEARCH, shortcut="F3", enabled=False,
-                                           tooltip="Start Searching this collection using SQL statements",
-                                           func=self._db_search_event, icon="folder-saved-search")
         self._refresh = _create_action(self, DBAction.REFRESH, shortcut="F5", icon="view-refresh",
                                        tooltip="Reload the exif data for the all the collection paths from disk",
                                        func=self._db_event, enabled=False)
@@ -363,9 +350,6 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
         self.addAction(self._save_as)
         self.addAction(self._shut_db)
         self.addSeparator()
-        self.addAction(self._open_search)
-        self.addAction(self._shut_search)
-        self.addSeparator()
         self.addAction(self._refresh)
         self.addAction(self._selective_refresh)
         self.addAction(self._reset)
@@ -394,21 +378,6 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
 
     def _selective_refresh_event(self, _):
         self.collection_event.emit(DBAction.REFRESH_SELECTED, self.selected_paths)
-
-    def _db_search_event(self, event):
-        match event:
-            case DBAction.OPEN_SEARCH:
-                self.collection_event.emit(DBAction.OPEN_SEARCH, self.selected_paths)
-                self._set_searching_available(False)
-            case DBAction.SHUT_SEARCH:
-                self.collection_event.emit(DBAction.SHUT_SEARCH, self.selected_paths)
-                self._set_searching_available(True)
-            case _:
-                app.logger.warning(f"Unexpected event {event} received")
-
-    def _set_searching_available(self, value: bool):
-        self._open_search.setEnabled(value)
-        self._shut_search.setEnabled(not value)
 
 
 class HelpMenu(QMenu):
@@ -510,7 +479,7 @@ class AppMenuBar(QMenuBar, HasCollectionDisplaySupport):
     db_event = pyqtSignal(DBAction, "PyQt_PyObject")
     medialib_event = pyqtSignal(MediaLibAction)
 
-    def __init__(self, plugins: list):
+    def __init__(self):
         super().__init__()
         self._db_menu = CollectionMenu(self)
         self._db_menu.collection_event.connect(self.db_event)
@@ -520,12 +489,12 @@ class AppMenuBar(QMenuBar, HasCollectionDisplaySupport):
         self._help_menu.help_event.connect(self.medialib_event)
         self._file_menu = FileMenu(self)
         self._file_menu.file_event.connect(self.medialib_event)
+        self._window_menu = QMenu("&Window", self)
 
         self.addMenu(self._file_menu)
         self.addMenu(self._db_menu)
         self.addMenu(self._view_menu)
-        if len(plugins) > 0:
-            self.addMenu(self._create_window_menu(plugins))
+        self.addMenu(self._window_menu)
         self.addMenu(self._help_menu)
 
     def update_recents(self, recents: list):
@@ -548,14 +517,9 @@ class AppMenuBar(QMenuBar, HasCollectionDisplaySupport):
     def update_available_views(self, available_views: list):
         self._view_menu.update_available_views(available_views)
 
-    def _create_window_menu(self, plugins: list):
-        window_menu = QMenu("&Window", self)
-
-        for plugin in plugins:
-            pl_action = plugin.toggleViewAction()
-            pl_action.setToolTip(plugin.statustip)
-            pl_action.setShortcut(plugin.shortcut)
-            pl_action.setIcon(plugin.icon)
-            window_menu.addAction(pl_action)
-
-        return window_menu
+    def register_plugin(self, plugin):
+        pl_action = plugin.toggleViewAction()
+        pl_action.setToolTip(plugin.statustip)
+        pl_action.setShortcut(plugin.shortcut)
+        pl_action.setIcon(plugin.icon)
+        self._window_menu.addAction(pl_action)

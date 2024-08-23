@@ -1,6 +1,6 @@
 import unittest
 
-from app.widgets.search import FindWidget
+from app.plugins.search import FindWidget
 
 
 class FindWidgetTester(unittest.TestCase):
