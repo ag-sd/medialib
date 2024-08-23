@@ -35,7 +35,7 @@ def get_mime_type_icon(mime_type_icon_name: str, use_fallback_icon=True):
 
 @dataclass
 class ModelData:
-    data: list
+    data: ...
     path: str
 
 
