@@ -7,7 +7,7 @@ from PyQt6.QtCore import Qt
 
 from app import views
 from app.collection import props
-from app.views import JsonView, ModelData, TableView
+from app.views import JsonView, ModelData, TableView, FileSystemView
 from tests.collection import test_utils
 
 
@@ -68,12 +68,28 @@ class JsonViewTests(unittest.TestCase):
         self.assertEqual(self._json_view.model().headerData(0, Qt.Orientation.Horizontal),
                          views._NO_DATA_MESSAGE)
 
-    @unittest.skip("Run this test only if you want to actually bring up the UI")
+    # @unittest.skip("Run this test only if you want to actually bring up the UI")
     def test_start_as_gui(self):
         test_file = Path(__file__).parent / "resources" / "sample_users.json"
         test_data = json.loads(test_file.read_text("utf-8"))
         self._json_view.set_model([ModelData(test_data, str(test_file))], None)
-        test_utils.launch_widget(self._json_view)
+        # test_utils.launch_widget(self._json_view)
+
+
+class FileSystemViewTests(unittest.TestCase):
+    def setUp(self):
+        self._fs_view = FileSystemView(parent=None)
+
+    def test_start_as_gui(self):
+        with tempfile.TemporaryDirectory() as db_path:
+            test_paths = test_utils.get_test_paths()
+            db = test_utils.create_test_media_db(db_path, test_paths)
+            model_data = []
+            for path in db.paths:
+                model_data.append(ModelData(data=db.data(path), path=path))
+
+            self._fs_view.set_model(model_data, db.tags)
+            test_utils.launch_widget(self._fs_view)
 
 
 class TableViewTests(unittest.TestCase):
