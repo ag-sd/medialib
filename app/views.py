@@ -1,28 +1,22 @@
 from abc import abstractmethod
-from collections import namedtuple
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex, QVariant, QPersistentModelIndex, QMimeDatabase, \
-    QSortFilterProxyModel, QRegularExpression, QObject, pyqtSignal
+from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex, QVariant, QPersistentModelIndex, QSortFilterProxyModel, \
+    QRegularExpression, QObject, pyqtSignal
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QIcon
 from PyQt6.QtWidgets import QTreeView, QTableView, QAbstractItemView
 
 import app
 from app.collection import props
+from app.plugins.framework import FileData
 
 _NO_DATA_MESSAGE = "Message: No Data to Show!"
 
 _MIME_ICON_DIRECTORY = "inode-directory"
 _MIME_ICON_COLLECTION_ROOT = "folder-library"
 _MIME_ICON_CACHE = {}
-_mime_database = QMimeDatabase()
-
-
-def get_mime_type_icon_name(file: str) -> str:
-    mime_type = _mime_database.mimeTypeForFile(file)
-    return mime_type.iconName()
 
 
 def get_mime_type_icon(mime_type_icon_name: str, use_fallback_icon=True):
@@ -45,57 +39,10 @@ class ModelData:
     path: str
 
 
-DirectoryReference = namedtuple('DirectoryReference', 'dir_name')
-
-
 @dataclass
-class FileData:
-    """
-    A class that represents a file. 
-    File Name, Directory and Mime Type are guaranteed to be present
-    """
-    file_name: str
-    directory: str
-    file_size: str
-    mime_type: str
-
-    def __post_init__(self):
-        if not isinstance(self.file_name, str):
-            raise ValueError("file_name must be set and of type string")
-        if not isinstance(self.directory, str):
-            raise ValueError("directory must be set and of type string")
-        if not isinstance(self.mime_type, str):
-            raise ValueError("mime_type must be set and of type string")
-
-    @staticmethod
-    def from_dict(data: dict):
-        """
-        Attempts to create a FileData class from the data present in the supplied dict
-        Args:
-            data: The dict with fields that can constitute a FileData object
-
-        Returns:
-            A FileData class representing the file or None if a FileData class cannot be created
-        """
-        file_name = None
-        directory = None
-        file_size = "Unavailable"
-        if props.FIELD_FILE_NAME in data:
-            file_name = data[props.FIELD_FILE_NAME]
-        if props.FIELD_FILE_SIZE in data:
-            file_size = data[props.FIELD_FILE_SIZE]
-        if props.FIELD_DIRECTORY in data:
-            directory = data[props.FIELD_DIRECTORY]
-        if props.FIELD_SOURCE_FILE in data:
-            if file_name is None or directory is None:
-                source_path = Path(data[props.FIELD_SOURCE_FILE])
-                file_name = source_path.name
-                directory = str(source_path.parent)
-        if file_name is not None and directory is not None:
-            mime_type = get_mime_type_icon_name(file_name)
-            return FileData(file_name=file_name, directory=directory,
-                            file_size=file_size, mime_type=mime_type)
-        return None
+class ModelReference:
+    data: ...
+    root: str
 
 
 class ViewCreationError(Exception):
@@ -132,8 +79,8 @@ class ModelManager(QObject):
         item = self._proxy_model.sourceModel().itemFromIndex(source_index)
         if item is not None:
             file_data = item.data(self.MODELMANAGER_FILE_DATA_ROLE)
-            print(file_data)
             if file_data is not None:
+                app.logger.debug(f"Emitting file event {file_data}")
                 self.file_click.emit(file_data)
 
     @staticmethod
@@ -187,8 +134,8 @@ class FileSystemView(QTreeView, ModelManager):
                 self.setHorizontalHeaderLabels(fields)
                 for _node in model_data:
                     self._build_file_hierarchy(reference_path=_node.path, path_data=_node.data)
-                    self.invisibleRootItem().appendRow(
-                        self._create_directory_row(DirectoryReference(_node.path), is_collection_root=True))
+                    self.invisibleRootItem().appendRow(self._create_directory_row(ModelReference(
+                        data=_node.path, root=_node.path), is_collection_root=True))
 
         def hasChildren(self, parent: QModelIndex = ...):
             """
@@ -203,8 +150,8 @@ class FileSystemView(QTreeView, ModelManager):
             if item is not None:
                 item_data = item.data(Qt.ItemDataRole.UserRole)
                 item_can_have_children = False
-                if item_data is not None:
-                    item_can_have_children = len(self._file_system[item_data]) > 0
+                if isinstance(item_data, ModelReference):
+                    item_can_have_children = len(self._file_system[item_data.data]) > 0
                 return item.hasChildren() or item_can_have_children
             return super().rowCount(parent)
 
@@ -220,8 +167,8 @@ class FileSystemView(QTreeView, ModelManager):
             if item is not None:
                 item_data = item.data(Qt.ItemDataRole.UserRole)
                 child_count = 0
-                if item_data is not None:
-                    child_count = len(self._file_system[item_data])
+                if isinstance(item_data, ModelReference):
+                    child_count = len(self._file_system[item_data.data])
                 # If it already has children or does not have children at all, return false
                 return not (item.hasChildren() or child_count == 0)
             return super().rowCount(index)
@@ -235,15 +182,15 @@ class FileSystemView(QTreeView, ModelManager):
             item = self.itemFromIndex(parent)
             if item is not None:
                 item_data = item.data(Qt.ItemDataRole.UserRole)
-                if item_data is not None:
-                    children = self._file_system[item_data]
+                if isinstance(item_data, ModelReference):
+                    children = self._file_system[item_data.data]
                     for key, value in children.items():
-                        if isinstance(value, DirectoryReference):
+                        if isinstance(value, ModelReference):
                             # Item is a directory
                             item.appendRow(self._create_directory_row(value))
                         else:
                             # Item is a file
-                            item.appendRow(self._create_file_row(value))
+                            item.appendRow(self._create_file_row(value, item_data.root))
                     return
 
             super().fetchMore(parent)
@@ -252,7 +199,7 @@ class FileSystemView(QTreeView, ModelManager):
             for record in path_data:
                 # Check if the data represents a file_system. In order for a file_system view, a FileData
                 # object should be composable from the path data
-                file_data = FileData.from_dict(record)
+                file_data = FileData.from_dict(record, reference_path)
                 if file_data is None:
                     raise ViewCreationError("Unable to create the view "
                                             "because at least one record does not represent a file")
@@ -266,20 +213,16 @@ class FileSystemView(QTreeView, ModelManager):
                     dir_name = str(p_current_dir.name)
                     dir_path = str(p_current_dir.parent)
                     self._ensure_path(dir_path)
-                    self._file_system[dir_path][dir_name] = DirectoryReference(str(current_dir))
+                    self._file_system[dir_path][dir_name] = ModelReference(str(current_dir), reference_path)
                     current_dir = dir_path
 
         def _ensure_path(self, path):
             if path not in self._file_system:
                 self._file_system[path] = {}
 
-        def _add_child(self, root: QStandardItem, child_path: str, icon=None):
-            root.appendRow([self._standard_item(child_path, child_path, icon),
-                            QStandardItem(f"{len(self._file_system[child_path])} items")])
-
-        def _create_file_row(self, file_data: dict):
+        def _create_file_row(self, file_data: dict, root_path: str):
             row = []
-            file_data_obj = FileData.from_dict(file_data)
+            file_data_obj = FileData.from_dict(file_data, root_path=root_path)
             for col in range(0, self.columnCount()):
                 col_name = self.horizontalHeaderItem(col).text()
                 if col == 0 and col_name == props.FIELD_SOURCE_FILE:
@@ -296,15 +239,15 @@ class FileSystemView(QTreeView, ModelManager):
             return row
 
         @staticmethod
-        def _create_directory_row(directory_data: DirectoryReference, is_collection_root: bool = False):
+        def _create_directory_row(directory_data: ModelReference, is_collection_root: bool = False):
             if is_collection_root:
-                std_item = QStandardItem(directory_data.dir_name)
+                std_item = QStandardItem(directory_data.data)
                 std_item.setIcon(get_mime_type_icon(_MIME_ICON_COLLECTION_ROOT))
             else:
-                p_dir_name = Path(directory_data.dir_name)
+                p_dir_name = Path(directory_data.data)
                 std_item = QStandardItem(p_dir_name.name)
                 std_item.setIcon(get_mime_type_icon(_MIME_ICON_DIRECTORY))
-            std_item.setData(directory_data.dir_name, Qt.ItemDataRole.UserRole)
+            std_item.setData(directory_data, Qt.ItemDataRole.UserRole)
             return std_item
 
         @staticmethod
@@ -343,7 +286,7 @@ class JsonView(QTreeView, ModelManager):
                 self.setHeaderData(0, Qt.Orientation.Horizontal, "Key")
                 self.setHeaderData(1, Qt.Orientation.Horizontal, "Data")
                 for _node in model_data:
-                    self._add_child(self.invisibleRootItem(), _node.path, _node.data,
+                    self._add_child(self.invisibleRootItem(), _node.path, _node.data, _node.path,
                                     get_mime_type_icon(_MIME_ICON_COLLECTION_ROOT))
 
         def canFetchMore(self, index: QModelIndex):
@@ -358,9 +301,9 @@ class JsonView(QTreeView, ModelManager):
             if item is not None:
                 item_data = item.data(Qt.ItemDataRole.UserRole)
                 child_count = 0
-                if item_data is not None:
-                    if isinstance(item_data, dict) or isinstance(item_data, list):
-                        child_count = len(item_data)
+                if isinstance(item_data, ModelReference):
+                    if isinstance(item_data.data, dict) or isinstance(item_data.data, list):
+                        child_count = len(item_data.data)
                 # If it already has children or does not have children at all, return false
                 return not (item.hasChildren() or child_count == 0)
             return super().rowCount(index)
@@ -396,9 +339,9 @@ class JsonView(QTreeView, ModelManager):
             if item is not None:
                 item_data = item.data(Qt.ItemDataRole.UserRole)
                 item_can_have_children = False
-                if item_data is not None:
-                    if isinstance(item_data, dict) or isinstance(item_data, list):
-                        item_can_have_children = len(item_data) > 0
+                if isinstance(item_data, ModelReference):
+                    if isinstance(item_data.data, dict) or isinstance(item_data.data, list):
+                        item_can_have_children = len(item_data.data) > 0
                 return item.hasChildren() or item_can_have_children
             return super().rowCount(parent)
 
@@ -411,42 +354,42 @@ class JsonView(QTreeView, ModelManager):
             item = self.itemFromIndex(parent)
             if item is not None:
                 item_data = item.data(Qt.ItemDataRole.UserRole)
-                if item_data is not None:
-                    if isinstance(item_data, dict):
-                        for key, value in item_data.items():
+                if isinstance(item_data, ModelReference):
+                    if isinstance(item_data.data, dict):
+                        for key, value in item_data.data.items():
                             if self._fields:
                                 if key in self._fields:
-                                    self._add_child(item, key, value)
+                                    self._add_child(item, key, value, item_data.root)
                             else:
-                                self._add_child(item, key, value)
-                    elif isinstance(item_data, list):
-                        for index, value in enumerate(item_data):
-                            self._add_child(item, f"[{index}]", value)
+                                self._add_child(item, key, value, item_data.root)
+                    elif isinstance(item_data.data, list):
+                        for index, value in enumerate(item_data.data):
+                            self._add_child(item, f"[{index}]", value, item_data.root)
                     return
 
             super().fetchMore(parent)
 
-        def _add_child(self, root: QStandardItem, key: str, value, icon: QIcon = None):
+        def _add_child(self, root: QStandardItem, key: str, value, root_path: str, icon: QIcon = None):
             if isinstance(value, list):
                 # List
-                root.appendRow([self._standard_item(key, value, icon), QStandardItem(f"{len(value)} items")])
+                root.appendRow([self._standard_item(key, value, root_path, icon), QStandardItem(f"{len(value)} items")])
             elif isinstance(value, dict):
                 # Dictionary
-                file_data = FileData.from_dict(value)
+                file_data = FileData.from_dict(value, root_path)
                 misc_data = ""
                 if file_data is not None:
                     icon = get_mime_type_icon(file_data.mime_type)
                     key = file_data.file_name
                     misc_data = file_data.file_size
-                root.appendRow([self._standard_item(key, value, icon, file_data), QStandardItem(misc_data)])
+                root.appendRow([self._standard_item(key, value, root_path, icon, file_data), QStandardItem(misc_data)])
             else:
                 # Node value
                 root.appendRow([QStandardItem(key), QStandardItem(str(value))])
 
         @staticmethod
-        def _standard_item(text, data, icon: QIcon = None, file_data: FileData = None):
+        def _standard_item(text, data, root_path: str, icon: QIcon = None, file_data: FileData = None):
             std_item = QStandardItem(text)
-            std_item.setData(data, Qt.ItemDataRole.UserRole)
+            std_item.setData(ModelReference(data=data, root=root_path), Qt.ItemDataRole.UserRole)
             if isinstance(icon, QIcon):
                 std_item.setIcon(icon)
             ModelManager.set_file_data(std_item, file_data)
@@ -483,7 +426,7 @@ class TableView(QTableView, ModelManager):
 
             for data in model_data:
                 for entry in data.data:
-                    self._exif_data.append(entry)
+                    self._exif_data.append(ModelReference(data=entry, root=data.path))
 
             if len(self._exif_data) == 0:
                 # No data.
@@ -538,10 +481,10 @@ class TableView(QTableView, ModelManager):
                 if self.orientation == Qt.Orientation.Horizontal:
                     row = self._exif_data[index.row()]
                     col = self._exif_cols[index.column()]
-                    if col in row:
-                        item = QStandardItem(str(row[col]))
+                    if col in row.data:
+                        item = QStandardItem(str(row.data[col]))
                         if index.column() == 0:
-                            file_data = FileData.from_dict(row)
+                            file_data = FileData.from_dict(row.data, row.root)
                             if file_data is not None:
                                 icon = get_mime_type_icon(file_data.mime_type)
                                 item.setIcon(icon)
@@ -612,22 +555,20 @@ class ViewType(Enum):
         return self._icon_name
 
 
-# import tempfile
-# from tests.collection import test_utils
-# import sys
-# from PyQt6.QtWidgets import QApplication
-# from app.collection.ds import Collection
-# test_app = QApplication(sys.argv)
-# _fs_view = FileSystemView(parent=None)
-#
-# db = Collection.open_db("/mnt/dev/testing/Medialib/test-db/")
-# model_data = []
-# for path in db.paths:
-#     model_data.append(ModelData(data=db.data(path), path=path))
-#
-# _fs_view.set_model(model_data, db.tags)
-# _fs_view.setMinimumSize(500, 1000)
-# _fs_view.show()
-# sys.exit(test_app.exec())
+import sys
+from PyQt6.QtWidgets import QApplication
+from app.collection.ds import Collection
+test_app = QApplication(sys.argv)
+_fs_view = FileSystemView(parent=None)
+
+db = Collection.open_db("/mnt/dev/testing/Medialib/image-picka/")
+model_data = []
+for path in db.paths:
+    model_data.append(ModelData(data=db.data(path), path=path))
+
+_fs_view.set_model(model_data, db.tags)
+_fs_view.setMinimumSize(500, 1000)
+_fs_view.show()
+sys.exit(test_app.exec())
 
 
