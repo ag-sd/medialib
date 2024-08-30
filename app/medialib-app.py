@@ -19,6 +19,7 @@ from app.collection.ds import Collection, CollectionNotFoundError, CorruptedColl
     CollectionQueryError
 from app.plugins import search, info
 from app.plugins.framework import SearchEventHandler, FileClickHandler, FileData
+from app.runtime import JobManager
 from app.views import ViewType, ModelData, ModelManager
 
 
@@ -50,6 +51,10 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         self.statusBar().addPermanentWidget(self.current_view_details)
 
         self._plugins = []
+        self._job_manager = JobManager(self)
+        self._job_manager.work_complete.connect(self._background_work_complete_event)
+        self.statusBar().addWidget(self._job_manager)
+        self.statusBar().show()
 
         # Menu Bar
         app.logger.debug("Configure Menubar ...")
@@ -153,7 +158,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                     app.logger.warning("Unable to save this collection as save path isn't provided. Requesting one now")
                     self._db_event(DBAction.SAVE_AS, event_args)
                 else:
-                    self._do_work_in_thread(self.collection.save, title="Saving collection please wait...")
+                    self._do_work_in_thread("save-collection", self.collection.save)
 
             case DBAction.SAVE_AS:
                 # First get save location
@@ -162,8 +167,8 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                 # Then configure the collection
                 if save_location != "":
                     app.logger.debug(f"DB will be saved to {save_location}")
-                    self._do_work_in_thread(self.collection.save, kwargs={"save_path": save_location},
-                                            title="Saving collection please wait...")
+                    self._do_work_in_thread("save-collection",
+                                            self.collection.save, kwargs={"save_path": save_location})
                 else:
                     app.logger.debug("User canceled save action")
 
@@ -186,18 +191,12 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                 self.show_collection(self.collection)
 
             case DBAction.REFRESH:
-                self._do_work_in_thread(self._refresh_paths, kwargs={"paths": self.collection.paths},
-                                        title=f"Refreshing collection...",
-                                        success_msg="Collection refreshed successfully")
-                self.show_collection(self.collection)
+                self._refresh_paths(self.collection.paths)
 
             case DBAction.REFRESH_SELECTED:
                 selected_paths = event_args
                 if len(selected_paths) > 0:
-                    self._do_work_in_thread(self._refresh_paths, kwargs={"paths": selected_paths},
-                                            title=f"Refreshing {len(selected_paths)} path(s)...",
-                                            success_msg="Selected paths were refreshed successfully")
-                    self._paths_changed(selected_paths)
+                    self._refresh_paths(selected_paths)
             case DBAction.PATH_CHANGE:
                 self._paths_changed(_paths=event_args)
 
@@ -237,6 +236,9 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                                                                       PLUGINS=[p.name for p in self._plugins])
                                   )
 
+    def _background_work_complete_event(self, task_name):
+        print(task_name)
+
     def register_plugin(self, plugin):
         plugin.setVisible(plugin.is_visible_on_start)
         self.addDockWidget(plugin.dockwidget_area, plugin)
@@ -268,6 +270,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                     self.current_view.find_text(search_scope)
 
     def _refresh_paths(self, paths):
+        app.logger.debug(f"Refreshing {len(paths)} path(s)")
         self.collection.clear_cache()
         for path in paths:
             self.collection.data(path, refresh=True)
@@ -289,9 +292,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         model_data = []
         try:
             for path in _paths:
-                self._do_work_in_thread(self.collection.data, {"path": str(path)},
-                                        title=f"Loading {len(_paths)} paths",
-                                        success_msg=f"{len(_paths)} paths were loaded successfully")
+                self._job_manager.do_work(self.collection.data, {"path": str(path)})
                 # Data is added to cache, so pick it up from cache
                 data = ModelData(data=self.collection.data(path=str(path)), path=path)
                 model_data.append(data)
@@ -363,29 +364,29 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         exiftool_file_filter = f"ExifTool Supported Files (*.{' *.'.join(exifinfo.SUPPORTED_FORMATS.split(' '))})"
         return apputils.get_new_paths(parent=self, is_dir=is_dir, file_filter=exiftool_file_filter)
 
-    def _do_work_in_thread(self, work_func, kwargs=None, title="Working please wait...", pr_min=0, pr_max=0,
-                           success_msg="Ready..."):
-        progress = QProgressBar()
-        progress.setMaximum(pr_max)
-        progress.setMinimum(pr_min)
-        window_title = self.windowTitle()
-        self.setWindowTitle(title)
-        self.menubar.setEnabled(False)
-        self.statusBar().addWidget(progress)
-        self.statusBar().show()
-        work_thread = threading.Thread(target=work_func, kwargs=kwargs, daemon=True)
-        work_thread.start()
-        app.logger.info(f"THREAD:{work_thread.ident} : Started work on "
-                        f"function `{work_func.__name__}` with args {kwargs} ...")
-        app.logger.info(title)
-        work_thread.join()
-        while work_thread.is_alive():
-            QCoreApplication.processEvents()
-        self.statusBar().removeWidget(progress)
-        self.setWindowTitle(window_title)
-        self.menubar.setEnabled(True)
-        self.statusBar().showMessage(success_msg, 5000)
-        app.logger.info(f"THREAD:{work_thread.ident} : Work completed : {success_msg}")
+    def _do_work_in_thread(self, task_name, work_func, kwargs=None):
+        self._job_manager.do_work(task_name, work_func, kwargs)
+        # progress = QProgressBar()
+        # progress.setMaximum(pr_max)
+        # progress.setMinimum(pr_min)
+        # window_title = self.windowTitle()
+        # self.setWindowTitle(title)
+        # self.menubar.setEnabled(False)
+        # self.statusBar().addWidget(progress)
+        # self.statusBar().show()
+        # work_thread = threading.Thread(target=work_func, kwargs=kwargs, daemon=True)
+        # work_thread.start()
+        # app.logger.info(f"THREAD:{work_thread.ident} : Started work on "
+        #                 f"function `{work_func.__name__}` with args {kwargs} ...")
+        # app.logger.info(title)
+        # work_thread.join()
+        # while work_thread.is_alive():
+        #     QCoreApplication.processEvents()
+        # self.statusBar().removeWidget(progress)
+        # self.setWindowTitle(window_title)
+        # self.menubar.setEnabled(True)
+        # self.statusBar().showMessage(success_msg, 5000)
+        # app.logger.info(f"THREAD:{work_thread.ident} : Work completed : {success_msg}")
 
 
 if __name__ == '__main__':

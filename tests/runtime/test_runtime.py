@@ -27,7 +27,7 @@ class ThreadPoolTester(unittest.TestCase):
         num_jobs = 1000
         jobs = []
         for i in range(0, num_jobs):
-            job = dispatcher.JobRunner(runnable_func, f"job:{i}", _id=i)
+            job = dispatcher.Job(runnable_func, f"job:{i}", _id=i)
             job.signals.status.connect(self.rez_coll)
             jobs.append(job)
         runner = dispatcher.JobDispatcher(jobs)

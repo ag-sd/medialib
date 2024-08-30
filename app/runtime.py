@@ -1,9 +1,10 @@
 import datetime
 import logging
-import uuid
+import queue
 from enum import StrEnum
 
 from PyQt6.QtCore import QObject, pyqtSignal, QRunnable, QThreadPool
+from PyQt6.QtWidgets import QWidget, QProgressBar, QHBoxLayout
 
 import app
 
@@ -33,12 +34,12 @@ class CommandSignals(QObject):
     log_message = pyqtSignal("PyQt_PyObject")
 
 
-class JobRunner(QRunnable):
-    def __init__(self, function, command_id=None, **kwargs):
+class Job(QRunnable):
+    def __init__(self, task_name, function, **kwargs):
         super().__init__()
         self._function = function
         self._kwargs = kwargs
-        self._id = str(command_id if command_id is not None else uuid.uuid1())
+        self._id = task_name
         self.signals = CommandSignals()
 
     def run(self):
@@ -69,8 +70,56 @@ class JobRunner(QRunnable):
             self.signals.thread_complete.emit(self._id)
 
 
-def run_jobs(jobs: list):
+def _start_jobs(jobs: list):
     _threadpool = QThreadPool.globalInstance()
     app.logger.debug(f"Multithreading with maximum {_threadpool.maxThreadCount()} threads")
     for job in jobs:
         _threadpool.start(job)
+
+
+class JobManager(QWidget):
+
+    work_complete = pyqtSignal(str)
+
+    def __init__(self, parent):
+        super().__init__(parent=parent)
+        self._job_queue = queue.Queue()
+        self._progressbar = QProgressBar()
+        self._progressbar.setMinimum(0)
+        self._progressbar.setMaximum(0)
+        self._logger = _create_logger(self.__class__.__name__)
+
+    def _init_ui(self):
+        layout = QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._progressbar)
+        self.setLayout(layout)
+
+    def _job_status(self, status):
+        self._logger.debug(f"Received status message from job {status}")
+
+    def _thread_complete(self, task_name):
+        self._job_queue.get()
+        if self._job_queue.qsize() > 0:
+            self._logger.debug(f"Received Job completion notice. Remaining jobs {self._job_queue.qsize()}")
+        else:
+            self._logger.debug("All jobs finished.")
+            self._progressbar.setVisible(False)
+        self.work_complete.emit(task_name)
+
+
+    def start_job(self, job: Job):
+        job.signals.status.connect(self._job_status)
+        job.signals.thread_complete.connect(self._thread_complete)
+        self._job_queue.put(job)
+        self._progressbar.setVisible(True)
+        _start_jobs([job])
+
+    def do_work(self, task_name, work_func, kwargs=None):
+        job = Job(task_name, work_func, **kwargs)
+        job.signals.status.connect(self._job_status)
+        job.signals.thread_complete.connect(self._thread_complete)
+        self._job_queue.put(job)
+        self._progressbar.setVisible(True)
+        _start_jobs([job])
+
