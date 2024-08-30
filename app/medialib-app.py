@@ -4,20 +4,22 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QUrl, QCoreApplication, Qt
+from PyQt6.QtCore import QUrl, QCoreApplication
 from PyQt6.QtGui import QDesktopServices, QIcon
 from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, QLabel, QMessageBox, QFileDialog, \
-    QProgressBar, QDockWidget
+    QProgressBar
 
 import app
 import apputils
 from app import appsettings
 from app.actions import AppMenuBar, MediaLibAction, DBAction, ViewAction
 from app.collection import exifinfo
-from app.collection.ds import Collection, CollectionNotFoundError, CorruptedCollectionError, HasCollectionDisplaySupport, \
+from app.collection.ds import Collection, CollectionNotFoundError, CorruptedCollectionError, \
+    HasCollectionDisplaySupport, \
     CollectionQueryError
+from app.plugins import search, info
+from app.plugins.framework import SearchEventHandler, FileClickHandler, FileData
 from app.views import ViewType, ModelData, ModelManager
-from app.widgets import search
 
 
 class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
@@ -47,20 +49,16 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         self.statusBar().addPermanentWidget(self.current_view_type_label)
         self.statusBar().addPermanentWidget(self.current_view_details)
 
-        self._plugins = self._init_plugins()
-
-        # Search
-        self._sql_search_widget = None
+        self._plugins = []
 
         # Menu Bar
         app.logger.debug("Configure Menubar ...")
-        self.menubar = AppMenuBar(plugins=self._plugins)
+        self.menubar = AppMenuBar()
         self.menubar.view_event.connect(self._view_event)
         self.menubar.db_event.connect(self._db_event)
         self.menubar.medialib_event.connect(self._medialib_event)
         self.menubar.update_recents(appsettings.get_recently_opened_collections())
         self.menubar.update_bookmarks(appsettings.get_bookmarks())
-
         self.setMenuBar(self.menubar)
 
         # Setup App
@@ -104,13 +102,11 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         app.logger.debug("Load collection and present data ...")
         # Update Menubar
         self.menubar.show_collection(self.collection)
-        # Update Search
-        if self._sql_search_widget and self._sql_search_widget.isVisible():
-            self._sql_search_widget.show_collection(collection)
         # Update Plugins
         for plugin in self._plugins:
             if isinstance(plugin, HasCollectionDisplaySupport):
                 plugin.show_collection(self.collection)
+
         # Update display
         self.setWindowTitle(f"{self.collection.name} : {app.__APP_NAME__}")
         self._paths_changed(self.collection.paths)
@@ -128,9 +124,6 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                     self._db_event(DBAction.SAVE, None)
             # Update Menubar
             self.menubar.shut_collection()
-            # Update Search
-            if self._sql_search_widget and self._sql_search_widget.isVisible():
-                self._sql_search_widget.shut_collection()
             # Update Plugins
             for plugin in self._plugins:
                 if isinstance(plugin, HasCollectionDisplaySupport):
@@ -208,22 +201,6 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
             case DBAction.PATH_CHANGE:
                 self._paths_changed(_paths=event_args)
 
-            case DBAction.OPEN_SEARCH:
-                self._sql_search_widget = search.QueryWidget(self)
-                self._sql_search_widget.show_collection(self.collection)
-                self._sql_search_widget.query_event.connect(self._sql_search_widget__query_event)
-                self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._sql_search_widget)
-                self._sql_search_widget.setVisible(True)
-                self._sql_search_widget.setFocus()
-
-            case DBAction.SHUT_SEARCH:
-                if self._sql_search_widget is not None:
-                    self._sql_search_widget.shut_collection()
-                    self._sql_search_widget.query_event.disconnect()
-                    self.removeDockWidget(self._sql_search_widget)
-                    self._sql_search_widget = None
-                    self._paths_changed(_paths=self.menubar.get_selected_collection_paths())
-
             case _:
                 app.logger.warning(f"Not Implemented: {db_action}")
 
@@ -256,40 +233,39 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
             case MediaLibAction.ABOUT:
                 html = Path(Path(__file__).parent / "resources" / "about.html").read_text()
                 QMessageBox.about(self, app.__APP_NAME__, html.format(APP_NAME=app.__NAME__, APP_URL=app.__APP_URL__,
-                                                                      VERSION=app.__VERSION__, YEAR=datetime.now().year)
+                                                                      VERSION=app.__VERSION__, YEAR=datetime.now().year,
+                                                                      PLUGINS=[p.name for p in self._plugins])
                                   )
 
-    def _init_plugins(self):
-        plugins = []
+    def register_plugin(self, plugin):
+        plugin.setVisible(plugin.is_visible_on_start)
+        self.addDockWidget(plugin.dockwidget_area, plugin)
 
-        def _init_plugin(plugin_widget: QDockWidget, area):
-            plugin_widget.setVisible(False)
-            self.addDockWidget(area, plugin_widget)
-            plugins.append(plugin_widget)
+        if isinstance(plugin, SearchEventHandler):
+            plugin.do_search.connect(self._plugin__do_search)
 
-        simple_find = search.FindWidget(self)
-        simple_find.find_event.connect(self._plugin_simple_find__find_event)
-        _init_plugin(simple_find, Qt.DockWidgetArea.TopDockWidgetArea)
+        self.menubar.register_plugin(plugin)
+        self._plugins.append(plugin)
+        app.logger.info(f"Registering plugin {plugin.name} is complete")
 
-        return plugins
-
-    def _plugin_simple_find__find_event(self, text):
-        if isinstance(self.current_view, ModelManager):
-            app.logger.debug(f"Finding text {text}")
-            self.current_view.find_text(text)
-
-    def _sql_search_widget__query_event(self, query):
-        app.logger.debug("Searching collection with paths provided")
-        try:
-            search_paths = self.menubar.get_selected_collection_paths()
-            results = self.collection.query(query, search_paths)
-            model_data = []
-            for search_result in results.data:
-                if len(search_result.results) > 0:
-                    model_data.append(ModelData(data=search_result.results, path=search_result.path))
-            self._display_model_data(model_data, results.searched_paths, results.columns)
-        except CollectionQueryError as d:
-            apputils.show_exception(self, d)
+    def _plugin__do_search(self, search_scope, search_type):
+        match search_type:
+            case SearchEventHandler.SearchType.QUERY:
+                app.logger.debug("Searching collection with paths provided")
+                try:
+                    search_paths = self.menubar.get_selected_collection_paths()
+                    results = self.collection.query(search_scope, search_paths)
+                    model_data = []
+                    for search_result in results.data:
+                        if len(search_result.results) > 0:
+                            model_data.append(ModelData(data=search_result.results, path=search_result.path))
+                    self._display_model_data(model_data, results.searched_paths, results.columns)
+                except CollectionQueryError as d:
+                    apputils.show_exception(self, d)
+            case SearchEventHandler.SearchType.VISUAL:
+                if isinstance(self.current_view, ModelManager):
+                    app.logger.debug(f"Finding text in visual interface {search_scope}")
+                    self.current_view.find_text(search_scope)
 
     def _refresh_paths(self, paths):
         self.collection.clear_cache()
@@ -352,9 +328,12 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
 
     def _display_model_data(self, model_data: list, paths: list, fields: set):
         self.current_view.set_model(model_data, fields)
+        self.current_view.file_click.connect(self._file_click)
         # Adjust view details
         if len(model_data) > 0:
             view_details = f"{len(paths)} path{'s' if len(paths) > 1 else ''} displayed"
+            row_count = f". {self.current_view.row_count} items" if self.current_view.row_count >= 0 else ""
+            view_details = f"{view_details}{row_count}"
             self.current_view_details.setText(view_details)
             self.current_view_details.setProperty("model_data", model_data)
             self.current_view_details.setProperty("paths", paths)
@@ -368,6 +347,17 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
             self.current_view_details.setProperty("paths", None)
             self.current_view_details.setProperty("fields", None)
             self.current_view_details.setToolTip("")
+
+    def _file_click(self, file_data: FileData):
+        # Query the database for this file
+        f_info = self.collection.search(str(Path(file_data.directory) / Path(file_data.file_name)), file_data.root_path)
+        if len(f_info.data) == 1:
+            model_data = ModelData(data=f_info.data[0].results, path=f_info.data[0].path)
+            for plugin in self._plugins:
+                if isinstance(plugin, FileClickHandler):
+                    plugin.handle_file_click([model_data], f_info.columns)
+        else:
+            app.logger.error(f"Unexpected search result returned from collection {f_info}")
 
     def _get_new_path(self, is_dir=False) -> list:
         exiftool_file_filter = f"ExifTool Supported Files (*.{' *.'.join(exifinfo.SUPPORTED_FORMATS.split(' '))})"
@@ -388,6 +378,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         app.logger.info(f"THREAD:{work_thread.ident} : Started work on "
                         f"function `{work_func.__name__}` with args {kwargs} ...")
         app.logger.info(title)
+        work_thread.join()
         while work_thread.is_alive():
             QCoreApplication.processEvents()
         self.statusBar().removeWidget(progress)
@@ -409,18 +400,34 @@ if __name__ == '__main__':
     group.add_argument("--collection", metavar="db", type=str, help="The full path of the collection to open")
 
     parser.add_argument("--view", metavar="v", type=str, default='table', help="Select the view to load")
+    parser.add_argument("--disableplugins", metavar="d", type=str, nargs="*", help="Disables the plugin")
 
     args = parser.parse_args()
-    app.logger.debug(f"Input args supplied       view: {args.view}")
-    app.logger.debug(f"Input args supplied      paths: {args.paths}")
-    app.logger.debug(f"Input args supplied collection: {args.collection}")
+    app.logger.debug(f"Input args supplied           view: {args.view}")
+    app.logger.debug(f"Input args supplied          paths: {args.paths}")
+    app.logger.debug(f"Input args supplied     collection: {args.collection}")
+    app.logger.debug(f"Input args supplied disableplugins: {args.disableplugins}")
 
     app.logger.debug(f"############################### TESTING CODE HERE ###############################")
 
     app.logger.debug(f"############################### TESTING CODE HERE ###############################")
 
-    # Prepare and launch GUI
+    # Prepare GUI with database if supplied
     application = QApplication(sys.argv)
     app.logger.debug(f"{app.__APP_NAME__} is starting up")
-    _ = MediaLibApp(args)
+    medialib_app = MediaLibApp(args)
+
+    # Instantiate necessary plugins
+    medialib_app_startup_plugins = [
+        search.FindWidget(medialib_app),
+        search.QueryWidget(medialib_app),
+        info.FileInfoPlugin(medialib_app),
+    ]
+    for medialib_app_startup_plugin in medialib_app_startup_plugins:
+        if args.disableplugins and medialib_app_startup_plugin.name in args.disableplugins:
+            app.logger.warning(f"{medialib_app_startup_plugin.name} plugin has been disabled by user")
+        else:
+            medialib_app.register_plugin(medialib_app_startup_plugin)
+
+    # Start App
     sys.exit(application.exec())

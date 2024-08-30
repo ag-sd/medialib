@@ -7,7 +7,7 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QWidget, QWidgetAction, QDockWidget
 
 import app
-from app import actions
+from app import actions, apputils
 from app.actions import ViewMenu, HelpMenu, MediaLibAction, FileMenu, CollectionMenu, DBAction, AppMenuBar
 from app.plugins.framework import WindowInfo
 from app.views import ViewType
@@ -20,12 +20,12 @@ class TestActions(unittest.TestCase):
     # https://github.com/jmcgeheeiv/pyqttestexample/blob/master/src/MargaritaMixerTest.py
 
     def test_create_action_missing_fields(self):
-        i1 = actions._create_action(None, "Test1")
+        i1 = apputils.create_action(None, "Test1")
         self.assertTrue(i1.text() == "Test1")
 
     def test_tooltip_and_shortcut(self):
         # If action has tooltip and shortcut, these are set at multiple places
-        i2 = actions._create_action(None, "Test2", func=None, shortcut="X", tooltip="TOOLTIP")
+        i2 = apputils.create_action(None, "Test2", func=None, shortcut="X", tooltip="TOOLTIP")
         self.assertTrue(i2.toolTip() == "TOOLTIP (X)")
         self.assertTrue(i2.toolTip() == "TOOLTIP (X)")
         self.assertTrue(i2.statusTip() == "TOOLTIP (X)")
@@ -33,7 +33,7 @@ class TestActions(unittest.TestCase):
 
     def test_no_tooltip(self):
         # If no shortcut is set, the tooltip does not show this
-        i2 = actions._create_action(None, "Test2", func=None, shortcut=None, tooltip="TOOLTIP")
+        i2 = apputils.create_action(None, "Test2", func=None, shortcut=None, tooltip="TOOLTIP")
         self.assertTrue(i2.toolTip() == "TOOLTIP")
         self.assertTrue(i2.toolTip() == "TOOLTIP")
         self.assertTrue(i2.statusTip() == "TOOLTIP")
@@ -42,7 +42,7 @@ class TestActions(unittest.TestCase):
 
     def test_widget_action_creation(self):
         # If a widget is supplied, the action returned is a widget action
-        i2 = actions._create_action(None, "Test2", func=None, shortcut=None, tooltip="TOOLTIP",
+        i2 = apputils.create_action(None, "Test2", func=None, shortcut=None, tooltip="TOOLTIP",
                                     widget=QWidget())
         self.assertIsInstance(i2, QWidgetAction)
 
@@ -120,6 +120,10 @@ class TestHelpMenu(unittest.TestCase):
 
     def setUp(self):
         self._help_menu = HelpMenu(None)
+        self._log_level = app.logger.level
+
+    def tearDown(self):
+        app.logger.setLevel(self._log_level)
 
     def test_init_menu(self):
         _actions = list(self._help_menu.actions())

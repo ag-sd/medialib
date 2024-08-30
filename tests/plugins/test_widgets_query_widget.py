@@ -22,6 +22,15 @@ class QueryWidgetTester(unittest.TestCase):
     def test_shortcut(self):
         self.assertEqual(self._query_widget.shortcut, "F3")
 
+    def test_dockwidget_area(self):
+        self.assertEqual(self._query_widget.dockwidget_area, Qt.DockWidgetArea.BottomDockWidgetArea)
+
+    def test_name(self):
+        self.assertEqual(self._query_widget.name, "Collection Search")
+
+    def test_is_visible_on_start(self):
+        self.assertEqual(self._query_widget.is_visible_on_start, False)
+
     def test_query_event_not_raised_if_text_is_empty(self):
         def callback(_):
             self._callback_called = True

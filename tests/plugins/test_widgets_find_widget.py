@@ -1,5 +1,7 @@
 import unittest
 
+from PyQt6.QtCore import Qt
+
 from app.plugins.search import FindWidget
 
 
@@ -16,6 +18,15 @@ class FindWidgetTester(unittest.TestCase):
 
     def test_shortcut(self):
         self.assertEqual(self._find_widget.shortcut, "Ctrl+F")
+
+    def test_dockwidget_area(self):
+        self.assertEqual(self._find_widget.dockwidget_area, Qt.DockWidgetArea.TopDockWidgetArea)
+
+    def test_name(self):
+        self.assertEqual(self._find_widget.name, "Find")
+
+    def test_is_visible_on_start(self):
+        self.assertEqual(self._find_widget.is_visible_on_start, False)
 
     def test_query(self):
         test_text = "Foo_BAR baz"

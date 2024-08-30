@@ -1,3 +1,4 @@
+import concurrent.futures
 import configparser
 import datetime
 import json
@@ -111,7 +112,25 @@ class Collection:
             raise ValueError("Invalid name supplied")
         self._collection_name = name
 
-    def query(self, query: str, query_paths: list):
+    def search(self, file_path: str, root_path: str) -> SearchResults:
+        """
+        Will attempt to search for a file in the database, pull all information for the supplied file, if found,
+        and return a search result object of the search
+        Args:
+            file_path: The source file path
+            root_path: The collection path where the source file exists
+
+        Returns:
+            A dictionary of file information if the file was found. If the file was not found, the dictionary will
+            be empty
+
+        """
+        if self.type == DBType.IN_MEMORY:
+            raise CollectionQueryError(TypeError("Cannot search an in-memory collection. Save the collection first"))
+
+        return self.query(f"SELECT * FROM collection where sourcefile='{file_path}'", query_paths=[root_path])
+
+    def query(self, query: str, query_paths: list) -> SearchResults:
         """
         Queries the collection with the supplied query. The supplied query should be in ANSI SQL
         Args:
@@ -123,18 +142,32 @@ class Collection:
 
         """
         if self.type == DBType.IN_MEMORY:
-            raise CollectionQueryError(TypeError("Cannot query an in-memory collection"))
+            raise CollectionQueryError(TypeError("Cannot query an in-memory collection. Save the collection first"))
 
         app.logger.debug(f"Querying DB index with the following query: {query}")
         search_data = []
         columns = None
-        for _path in query_paths:
-            disk_cache_file_name = str(self._cache_file_path(self._create_path_key(_path)))
-            try:
-                results, columns = indexer.query_index(self.save_path, query, disk_cache_file_name)
-                search_data.append(SearchResult(results=results, path=_path))
-            except Exception as e:
-                raise CollectionQueryError(root_exception=e)
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            app.logger.info(f"Searching {len(query_paths)} paths concurrently...")
+            futures = {}
+            for _path in query_paths:
+                disk_cache_file_name = str(self._cache_file_path(self._create_path_key(_path)))
+                futures[_path] = executor.submit(indexer.query_index, self.save_path, query, disk_cache_file_name)
+
+            for _path, future in futures.items():
+                try:
+                    results, columns = future.result()
+                    search_data.append(SearchResult(results=results, path=_path))
+                except Exception as e:
+                    raise CollectionQueryError(root_exception=e)
+
+        # for _path in query_paths:
+        #     disk_cache_file_name = str(self._cache_file_path(self._create_path_key(_path)))
+        #     try:
+        #         results, columns = indexer.query_index(self.save_path, query, disk_cache_file_name)
+        #         search_data.append(SearchResult(results=results, path=_path))
+        #     except Exception as e:
+        #         raise CollectionQueryError(root_exception=e)
         return SearchResults(data=search_data, columns=columns, query=query, searched_paths=query_paths)
 
     def data(self, path: str, refresh=False):
@@ -221,16 +254,22 @@ class Collection:
         self.clear_cache()
         # Set DB Type
         self._type = db_type
-        # Iterate through each path in the collection and write its metadata to disk
-        for path in self.paths:
-            self.data(path, refresh=True)
+        # Iterate through each path in the collection and write its metadata to disk concurrently
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            for path in self.paths:
+                app.logger.info(f"Threaded submission of path {path}")
+                executor.submit(self.data, path, True)
+            # for path in self.paths:
+            #     self.data(path, refresh=True)
+        app.logger.info("All threads complete")
         # Write Metadata to the collection
         app.logger.info("Writing Metadata...")
         Properties.write(self)
         # Index the Collection
         app.logger.info("Indexing collection...")
         if not indexer.create_index(self.save_path):
-            app.logger.exception("Unable to index collection. It cannot be searched!")
+            app.logger.exception("Unable to index collection. It cannot be searched! "
+                                 "Try Re-Indexing it after a few minutes")
             raise ValueError("Unable to index this collection. Please see logs for more details")
         app.logger.info("Done..")
         self._is_modified = False
