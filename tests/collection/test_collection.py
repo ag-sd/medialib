@@ -2,7 +2,7 @@ import tempfile
 import unittest
 
 from app.collection import props
-from app.collection.ds import Collection, Properties, CollectionNotFoundError
+from app.collection.ds import Collection, Properties, CollectionNotFoundError, CollectionQueryError
 from app.collection.props import DBType
 from tests.collection import test_utils
 
@@ -93,7 +93,7 @@ class TestCollection(unittest.TestCase):
         tmp_files = test_utils.get_temp_files(2)
         db = Collection.create_in_memory(paths=tmp_files)
         self.assertEqual(db._tags, [])
-        db.data(tmp_files[0])
+        db.data([tmp_files[0]])
         self.assertEqual(db.tags,
                          ['SourceFile',
                           'ExifTool:ExifToolVersion',
@@ -129,9 +129,9 @@ class TestCollection(unittest.TestCase):
             paths = test_utils.get_temp_files(2)
             db = Collection.create_in_memory(paths[:1], save_path=db_path)
             try:
-                db.data(paths[1])
+                db.data([paths[1]])
                 self.fail("Request should fail as this path does not exist in the collection")
-            except ValueError:
+            except CollectionQueryError:
                 pass
 
     def test_db_data_fetch_from_disk(self):
@@ -140,7 +140,7 @@ class TestCollection(unittest.TestCase):
             db = test_utils.create_test_media_db(db_path, test_paths[:1])
             db.save()
             db.clear_cache()
-            _ = db.data(test_paths[0])
+            _ = db.data([test_paths[0]])
 
     def test_db_data_new_path_added(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -148,7 +148,7 @@ class TestCollection(unittest.TestCase):
             db = test_utils.create_test_media_db(db_path, test_paths[:1])
             db.save()
             db.add_paths(test_paths[1:])
-            _ = db.data(test_paths[1])
+            _ = db.data([test_paths[1]])
 
     def test_db_data_path_non_existent(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -157,16 +157,16 @@ class TestCollection(unittest.TestCase):
             ne_path = f"{test_paths[0]}__"
             db.add_paths([ne_path])
             try:
-                db.data(ne_path)
-            except ValueError:
+                db.data([ne_path])
+            except CollectionQueryError:
                 pass
 
     def test_db_empty_dir(self):
         with tempfile.TemporaryDirectory() as db_path:
             with tempfile.TemporaryDirectory() as empty_path:
                 db = test_utils.create_test_media_db(db_path, [empty_path])
-                data = db.data(empty_path)
-                self.assertEqual(data, [])
+                data = db.data([empty_path])
+                self.assertEqual(data, {empty_path: []})
 
     def test_save_db_invalid_save_path(self):
         test_paths = test_utils.get_test_paths()

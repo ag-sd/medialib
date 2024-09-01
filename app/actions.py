@@ -3,8 +3,8 @@ from enum import StrEnum
 from functools import partial
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QAction, QIcon, QActionGroup
-from PyQt6.QtWidgets import QMenuBar, QMenu, QWidgetAction, QCheckBox
+from PyQt6.QtGui import QIcon, QActionGroup
+from PyQt6.QtWidgets import QMenuBar, QMenu, QCheckBox
 
 import app
 from app import appsettings, apputils
@@ -12,45 +12,6 @@ from app.collection import props
 from app.collection.ds import Collection, HasCollectionDisplaySupport
 from app.collection.props import DBType
 from app.views import ViewType
-
-
-def _create_action(parent, name, func=None, shortcut=None, tooltip=None, icon=None, checked=None, enabled=True,
-                   widget=None):
-    """
-    Creates an action for use in a Toolbar or Menu
-    :param parent: The actions parent
-    :param name: The action name
-    :param func: The function to call when this action is triggered
-    :param shortcut: The keyboard shortcut for this action
-    :param tooltip: The tooltip to display when this action is interacted with
-    :param icon: The icon to show for this action
-    :param checked: Whether the visual cue associated with this action represents a check mark
-    :param enabled: Whether the action is enabled once created
-    :param widget: If a widget is provided, this function will create a QWidgetAction instead of a QAction
-    :return: A QAction object representing this action
-    """
-    # TODO: Test
-    if widget is not None:
-        action = QWidgetAction(parent)
-    else:
-        action = QAction(name, parent)
-
-    if tooltip and shortcut:
-        tooltip = f"{tooltip} ({shortcut})"
-    if shortcut:
-        action.setShortcut(shortcut)
-    if tooltip:
-        action.setToolTip(tooltip)
-        action.setStatusTip(tooltip)
-    if func:
-        action.triggered.connect(partial(func, name))
-    if icon:
-        action.setIcon(QIcon.fromTheme(icon))
-    if checked is not None:
-        action.setCheckable(True)
-        action.setChecked(checked)
-    action.setEnabled(enabled)
-    return action
 
 
 def _find_action(text, actions):
@@ -96,10 +57,11 @@ class DBAction(StrEnum):
     SAVE_AS = "Save As..."
     REFRESH = "Refresh"
     REFRESH_SELECTED = "Refresh Selected Paths"
+    REINDEX_COLLECTION = "Re-index"
     RESET = "Reset"
     BOOKMARK = "Add or Remove Favorite"
-    OPEN_DB = "Open Collection..."
-    SHUT_DB = "Close Collection"
+    OPEN_DB = "Open..."
+    SHUT_DB = "Close"
     PATH_CHANGE = "Path Change"
 
 
@@ -148,8 +110,8 @@ class ViewMenu(QMenu, HasCollectionDisplaySupport):
         view_group = QActionGroup(self)
         view_group.setExclusive(True)
         for i, v in enumerate(ViewType):
-            view_action = _create_action(self, v.name, func=self._raise_view_event, icon=v.icon,
-                                         shortcut=f"Alt+Shift+{i + 1}", tooltip=v.description, checked=False)
+            view_action = apputils.create_action(self, v.name, func=self._raise_view_event, icon=v.icon,
+                                                 shortcut=f"Alt+Shift+{i + 1}", tooltip=v.description, checked=False)
             view_action.setProperty("view-action", True)
             self.addAction(view_action)
             view_group.addAction(view_action)
@@ -171,26 +133,15 @@ class ViewMenu(QMenu, HasCollectionDisplaySupport):
 
     def _update_all_fields_menu(self, db: Collection):
         self._view_menu_all_fields.clear()
-        orphan_fields_added = False
-        tag_groups = {}
-        for key in db.tags:
-            self._all_tags.append(key)
-            tokens = key.split(":")
-            if len(tokens) == 1:
-                cb = self._create_checkbox(key, self._view_menu_all_fields, tokens[0])
+        groups = apputils.create_tag_groups(db.tags)
+        if props.DB_TAG_GROUP_DEFAULT in groups:
+            for key in groups[props.DB_TAG_GROUP_DEFAULT]:
+                cb = self._create_checkbox(key, self._view_menu_all_fields, key)
                 self._add_menu_item(self._view_menu_all_fields, cb)
-                orphan_fields_added = True
-            elif len(tokens) == 2:
-                if tokens[0] not in tag_groups:
-                    tag_groups[tokens[0]] = []
-                tag_groups[tokens[0]].append(tokens[1])
-            else:
-                app.logger.warning(f"Unhandled field {key} will not be shown in the view")
-
-        if orphan_fields_added:
             self._view_menu_all_fields.addSeparator()
+            del groups[props.DB_TAG_GROUP_DEFAULT]
 
-        for group, items in sorted(tag_groups.items()):
+        for group, items in sorted(groups.items()):
             group_menu = QMenu(group, parent=self._view_menu_all_fields)
             for key in sorted(items):
                 field_name = f"{group}:{key}"
@@ -208,8 +159,8 @@ class ViewMenu(QMenu, HasCollectionDisplaySupport):
         # Remove fields from the presets that are not in this collection
         filtered_fields = [f for f in fields if f in collection.tags]
         if len(filtered_fields) > 0:
-            action = _create_action(self._view_menu_presets, name, self._preset_clicked_event, tooltip=tooltip,
-                                    checked=False)
+            action = apputils.create_action(self._view_menu_presets, name, self._preset_clicked_event, tooltip=tooltip,
+                                            checked=False)
             action.setProperty(self._PROP_FIELD_ID, filtered_fields)
             self._view_menu_presets.addAction(action)
             self._presets_group.addAction(action)
@@ -249,7 +200,7 @@ class ViewMenu(QMenu, HasCollectionDisplaySupport):
 
     @staticmethod
     def _add_menu_item(parent: QMenu, widget):
-        _action = _create_action(parent, "", tooltip=widget.toolTip(), widget=widget)
+        _action = apputils.create_action(parent, "", tooltip=widget.toolTip(), widget=widget)
         _action.setDefaultWidget(widget)
         parent.addAction(_action)
 
@@ -268,15 +219,17 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
         self._add_bookmark.setEnabled(not collection.type == DBType.IN_MEMORY)
         self._save_as.setEnabled(True)
         self._refresh.setEnabled(True)
+        self._reindex.setEnabled(True)
         self._selective_refresh.setEnabled(True)
         self._shut_db.setEnabled(True)
         self._paths_menu.setEnabled(True)
 
         _clear_menu(self._paths_menu)
         for count, item in enumerate(collection.paths):
-            self._paths_menu.addAction(_create_action(self, item, func=self._paths_change_event,
-                                                      icon=apputils.get_mime_type_icon_name(item),
-                                                      shortcut=f"Ctrl+{count + 1}" if count < 9 else None, checked=True)
+            self._paths_menu.addAction(apputils.create_action(self, item, func=self._paths_change_event,
+                                                              icon=apputils.get_mime_type_icon_name(item),
+                                                              shortcut=f"Ctrl+{count + 1}" if count < 9 else None,
+                                                              checked=True)
                                        )
 
     def shut_collection(self):
@@ -284,6 +237,7 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
         self._save_as.setEnabled(False)
         self._reset.setEnabled(False)
         self._refresh.setEnabled(False)
+        self._reindex.setEnabled(False)
         self._selective_refresh.setEnabled(False)
         self._add_bookmark.setEnabled(False)
         self._shut_db.setEnabled(False)
@@ -310,31 +264,35 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
     def __init__(self, parent):
         super().__init__("&Collection", parent=parent)
 
-        self._save = _create_action(self, DBAction.SAVE, shortcut="Ctrl+S", icon="document-save",
-                                    tooltip="Save the exif data of all open paths to the DB",
-                                    func=self._db_event, enabled=False)
-        self._save_as = _create_action(self, DBAction.SAVE_AS, shortcut="Ctrl+Shift+S", icon="document-save-as",
-                                       tooltip="Save the exif data of all open paths to the DB",
-                                       func=self._db_event, enabled=False)
-        self._shut_db = _create_action(self, DBAction.SHUT_DB, shortcut="Ctrl+W", icon="document-close",
-                                       tooltip="Close the collection, saving it if required",
-                                       func=self._db_event, enabled=False)
-        self._refresh = _create_action(self, DBAction.REFRESH, shortcut="F5", icon="view-refresh",
-                                       tooltip="Reload the exif data for the all the collection paths from disk",
-                                       func=self._db_event, enabled=False)
-        self._selective_refresh = _create_action(self, DBAction.REFRESH_SELECTED, shortcut="Shift+F5",
-                                                 icon="view-refresh", func=self._selective_refresh_event, enabled=False,
-                                                 tooltip="Reload the exif data for the the selected "
-                                                         "collection paths from disk")
-        self._reset = _create_action(self, DBAction.RESET, icon="view-restore",
-                                     tooltip="Reset this collection",
-                                     func=self._db_event, enabled=False)
-        self._add_bookmark = _create_action(self, DBAction.BOOKMARK, icon="bookmark",
-                                            tooltip="Add or remove this collection from favorites",
+        self._save = apputils.create_action(self, DBAction.SAVE, shortcut="Ctrl+S", icon="document-save",
+                                            tooltip="Save the exif data of all open paths to the DB",
                                             func=self._db_event, enabled=False)
-        self._open_db = _create_action(self, DBAction.OPEN_DB, shortcut="Ctrl+D",
-                                       icon="collection-open", func=self._db_event,
-                                       tooltip="Open a non registered private collection")
+        self._save_as = apputils.create_action(self, DBAction.SAVE_AS, shortcut="Ctrl+Shift+S", icon="document-save-as",
+                                               tooltip="Save the exif data of all open paths to the DB",
+                                               func=self._db_event, enabled=False)
+        self._shut_db = apputils.create_action(self, DBAction.SHUT_DB, shortcut="Ctrl+W", icon="document-close",
+                                               tooltip="Close the collection, saving it if required",
+                                               func=self._db_event, enabled=False)
+        self._refresh = apputils.create_action(self, DBAction.REFRESH, shortcut="F5", icon="view-refresh",
+                                               tooltip="Reload the exif data for the all the collection paths from disk",
+                                               func=self._db_event, enabled=False)
+        self._selective_refresh = apputils.create_action(self, DBAction.REFRESH_SELECTED, shortcut="Shift+F5",
+                                                         icon="view-refresh", func=self._selective_refresh_event,
+                                                         enabled=False,
+                                                         tooltip="Reload the exif data for the the selected "
+                                                                 "collection paths from disk")
+        self._reindex = apputils.create_action(self, DBAction.REINDEX_COLLECTION, shortcut=None, icon="view-refresh",
+                                               tooltip="Reindex this collection for faster searches",
+                                               func=self._db_event, enabled=False)
+        self._reset = apputils.create_action(self, DBAction.RESET, icon="view-restore",
+                                             tooltip="Reset this collection",
+                                             func=self._db_event, enabled=False)
+        self._add_bookmark = apputils.create_action(self, DBAction.BOOKMARK, icon="bookmark",
+                                                    tooltip="Add or remove this collection from favorites",
+                                                    func=self._db_event, enabled=False)
+        self._open_db = apputils.create_action(self, DBAction.OPEN_DB, shortcut="Ctrl+D",
+                                               icon="collection-open", func=self._db_event,
+                                               tooltip="Open a non registered private collection")
 
         self._paths_menu = QMenu(self._MENU_DB_PATHS, self)
         self._paths_menu.setIcon(QIcon.fromTheme("collection-paths"))
@@ -353,7 +311,7 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
         self.addAction(self._refresh)
         self.addAction(self._selective_refresh)
         self.addAction(self._reset)
-        self.addAction(self._add_bookmark)
+        self.addAction(self._reindex)
         self.addSeparator()
         self.addMenu(self._paths_menu)
         self.addSeparator()
@@ -361,11 +319,12 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
         self.addSeparator()
         self.addMenu(self._history_menu)
         self.addMenu(self._bookmarks_menu)
+        self.addAction(self._add_bookmark)
 
     def _update_db_list(self, menu: QMenu, sub_items: list, icon_name: str):
         _clear_menu(menu)
         for path in sub_items:
-            menu.addAction(_create_action(self, path, func=self._open_db_event, icon=icon_name))
+            menu.addAction(apputils.create_action(self, path, func=self._open_db_event, icon=icon_name))
 
     def _paths_change_event(self, _):
         self.collection_event.emit(DBAction.PATH_CHANGE, self.selected_paths)
@@ -394,14 +353,14 @@ class HelpMenu(QMenu):
         self._log_menu.setIcon(QIcon.fromTheme("text-x-generic"))
         self._log_level_group = QActionGroup(self._log_menu)
 
-        self._debug = _create_action(parent, self.LOG_DEBUG, self._log_level_changed,
-                                     tooltip="Display all application logs", checked=False)
-        self._info = _create_action(parent, self.LOG_INFO, self._log_level_changed,
-                                    tooltip="Do not show debug logs", checked=False)
-        self._warning = _create_action(parent, self.LOG_WARNING, self._log_level_changed,
-                                       tooltip="Display warnings and errors only", checked=False)
-        self._error = _create_action(parent, self.LOG_ERROR, self._log_level_changed,
-                                     tooltip="Only show application errors", checked=False)
+        self._debug = apputils.create_action(parent, self.LOG_DEBUG, self._log_level_changed,
+                                             tooltip="Display all application logs", checked=False)
+        self._info = apputils.create_action(parent, self.LOG_INFO, self._log_level_changed,
+                                            tooltip="Do not show debug logs", checked=False)
+        self._warning = apputils.create_action(parent, self.LOG_WARNING, self._log_level_changed,
+                                               tooltip="Display warnings and errors only", checked=False)
+        self._error = apputils.create_action(parent, self.LOG_ERROR, self._log_level_changed,
+                                             tooltip="Only show application errors", checked=False)
         self._create_menu()
 
     def _create_menu(self):
@@ -414,12 +373,12 @@ class HelpMenu(QMenu):
         self._log_menu.addActions([self._debug, self._info, self._warning, self._error])
         self.set_application_log_level(appsettings.get_log_level())
 
-        self.addAction(_create_action(self, MediaLibAction.OPEN_GIT, self._raise_menu_event,
-                                      icon="folder-git", tooltip="Visit this project on GitHub"))
+        self.addAction(apputils.create_action(self, MediaLibAction.OPEN_GIT, self._raise_menu_event,
+                                              icon="folder-git", tooltip="Visit this project on GitHub"))
         self.addMenu(self._log_menu)
         self.addSeparator()
-        self.addAction(_create_action(self, MediaLibAction.ABOUT, self._raise_menu_event, icon="help-about",
-                                      tooltip="About this application"))
+        self.addAction(apputils.create_action(self, MediaLibAction.ABOUT, self._raise_menu_event, icon="help-about",
+                                              tooltip="About this application"))
 
     def _raise_menu_event(self, action):
         self.help_event.emit(MediaLibAction(action))
@@ -458,17 +417,21 @@ class FileMenu(QMenu):
 
     def __init__(self, parent):
         super().__init__("&File", parent)
-        self.addAction(_create_action(self, MediaLibAction.OPEN_FILE, shortcut="Ctrl+O", func=self._raise_menu_event,
-                                      icon="document-open", tooltip="Open a file to view its exif data"))
-        self.addAction(_create_action(self, MediaLibAction.OPEN_PATH, shortcut="Ctrl+D", func=self._raise_menu_event,
-                                      tooltip="Open a directory to view info of all supported files in it",
-                                      icon="document-open-folder"))
+        self.addAction(
+            apputils.create_action(self, MediaLibAction.OPEN_FILE, shortcut="Ctrl+O", func=self._raise_menu_event,
+                                   icon="document-open", tooltip="Open a file to view its exif data"))
+        self.addAction(
+            apputils.create_action(self, MediaLibAction.OPEN_PATH, shortcut="Ctrl+D", func=self._raise_menu_event,
+                                   tooltip="Open a directory to view info of all supported files in it",
+                                   icon="document-open-folder"))
         self.addSeparator()
-        self.addAction(_create_action(self, MediaLibAction.SETTINGS, func=self._raise_menu_event, shortcut="Ctrl+,",
-                                      icon="preferences-system", tooltip=f"Open {app.__NAME__} Preferences"))
+        self.addAction(
+            apputils.create_action(self, MediaLibAction.SETTINGS, func=self._raise_menu_event, shortcut="Ctrl+,",
+                                   icon="preferences-system", tooltip=f"Open {app.__NAME__} Preferences"))
         self.addSeparator()
-        self.addAction(_create_action(self, MediaLibAction.APP_EXIT, func=self._raise_menu_event,
-                                      shortcut="Ctrl+Q", icon="application-exit", tooltip=f"Quit {app.__NAME__}"))
+        self.addAction(apputils.create_action(self, MediaLibAction.APP_EXIT, func=self._raise_menu_event,
+                                              shortcut="Ctrl+Q", icon="application-exit",
+                                              tooltip=f"Quit {app.__NAME__}"))
 
     def _raise_menu_event(self, action):
         self.file_event.emit(MediaLibAction(action))

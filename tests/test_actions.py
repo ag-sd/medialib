@@ -7,7 +7,7 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QWidget, QWidgetAction, QDockWidget
 
 import app
-from app import actions
+from app import actions, apputils
 from app.actions import ViewMenu, HelpMenu, MediaLibAction, FileMenu, CollectionMenu, DBAction, AppMenuBar
 from app.plugins.framework import WindowInfo
 from app.views import ViewType
@@ -20,12 +20,12 @@ class TestActions(unittest.TestCase):
     # https://github.com/jmcgeheeiv/pyqttestexample/blob/master/src/MargaritaMixerTest.py
 
     def test_create_action_missing_fields(self):
-        i1 = actions._create_action(None, "Test1")
+        i1 = apputils.create_action(None, "Test1")
         self.assertTrue(i1.text() == "Test1")
 
     def test_tooltip_and_shortcut(self):
         # If action has tooltip and shortcut, these are set at multiple places
-        i2 = actions._create_action(None, "Test2", func=None, shortcut="X", tooltip="TOOLTIP")
+        i2 = apputils.create_action(None, "Test2", func=None, shortcut="X", tooltip="TOOLTIP")
         self.assertTrue(i2.toolTip() == "TOOLTIP (X)")
         self.assertTrue(i2.toolTip() == "TOOLTIP (X)")
         self.assertTrue(i2.statusTip() == "TOOLTIP (X)")
@@ -33,7 +33,7 @@ class TestActions(unittest.TestCase):
 
     def test_no_tooltip(self):
         # If no shortcut is set, the tooltip does not show this
-        i2 = actions._create_action(None, "Test2", func=None, shortcut=None, tooltip="TOOLTIP")
+        i2 = apputils.create_action(None, "Test2", func=None, shortcut=None, tooltip="TOOLTIP")
         self.assertTrue(i2.toolTip() == "TOOLTIP")
         self.assertTrue(i2.toolTip() == "TOOLTIP")
         self.assertTrue(i2.statusTip() == "TOOLTIP")
@@ -42,7 +42,7 @@ class TestActions(unittest.TestCase):
 
     def test_widget_action_creation(self):
         # If a widget is supplied, the action returned is a widget action
-        i2 = actions._create_action(None, "Test2", func=None, shortcut=None, tooltip="TOOLTIP",
+        i2 = apputils.create_action(None, "Test2", func=None, shortcut=None, tooltip="TOOLTIP",
                                     widget=QWidget())
         self.assertIsInstance(i2, QWidgetAction)
 
@@ -73,7 +73,7 @@ class TestViewMenu(unittest.TestCase):
             # Available fields count will be different
             self.assertEqual(len(list(self._view_menu._view_menu_all_fields.actions())), 8)
             # Presets are available
-            self.assertEqual(len(list(self._view_menu._view_menu_presets.actions())), 3)
+            self.assertEqual(len(list(self._view_menu._view_menu_presets.actions())), 2)
 
     def test_show_collection_audio_files(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -85,7 +85,7 @@ class TestViewMenu(unittest.TestCase):
             # Available fields count will be different
             self.assertEqual(len(list(self._view_menu._view_menu_all_fields.actions())), 11)
             # Presets are available
-            self.assertEqual(len(list(self._view_menu._view_menu_presets.actions())), 3)
+            self.assertEqual(len(list(self._view_menu._view_menu_presets.actions())), 2)
 
     def test_shut_collection(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -120,6 +120,10 @@ class TestHelpMenu(unittest.TestCase):
 
     def setUp(self):
         self._help_menu = HelpMenu(None)
+        self._log_level = app.logger.level
+
+    def tearDown(self):
+        app.logger.setLevel(self._log_level)
 
     def test_init_menu(self):
         _actions = list(self._help_menu.actions())
@@ -186,7 +190,7 @@ class TestCollectionMenu(unittest.TestCase):
         self.assertEqual(_actions[4].text(), DBAction.REFRESH)
         self.assertEqual(_actions[5].text(), DBAction.REFRESH_SELECTED)
         self.assertEqual(_actions[6].text(), DBAction.RESET)
-        self.assertEqual(_actions[7].text(), DBAction.BOOKMARK)
+        self.assertEqual(_actions[7].text(), DBAction.REINDEX_COLLECTION)
         self.assertTrue(_actions[8].isSeparator())
         self.assertEqual(_actions[9].text(), CollectionMenu._MENU_DB_PATHS)
         self.assertTrue(_actions[10].isSeparator())
@@ -194,8 +198,9 @@ class TestCollectionMenu(unittest.TestCase):
         self.assertTrue(_actions[12].isSeparator())
         self.assertEqual(_actions[13].text(), CollectionMenu._MENU_DB_HISTORY)
         self.assertEqual(_actions[14].text(), CollectionMenu._MENU_DB_BOOKMARKS)
+        self.assertEqual(_actions[15].text(), DBAction.BOOKMARK)
 
-        self.assertEqual(len(_actions), 15)
+        self.assertEqual(len(_actions), 16)
 
     def test_open_collection_on_disk(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -404,7 +409,7 @@ class TestAppMenuBar(unittest.TestCase):
 
             self.assertEqual(len(list(self._menu._view_menu._view_menu_all_fields.actions())), 13)
             # Presets are available
-            self.assertEqual(len(list(self._menu._view_menu._view_menu_presets.actions())), 3)
+            self.assertEqual(len(list(self._menu._view_menu._view_menu_presets.actions())), 2)
 
     def test_shut_collection(self):
         with tempfile.TemporaryDirectory() as db_path:

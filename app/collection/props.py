@@ -21,6 +21,8 @@ DB_UPDATED = "updated"
 DB_TAGS = "tags"
 DB_NAME = "collection_name"
 DB_DEFAULT_NAME = "default-collection"
+DB_TAG_GROUP_DEFAULT = "ROOT"
+DB_TAG_GROUP_SYSTEM = "System"
 
 V_VERSION = "version"
 
@@ -30,6 +32,7 @@ EXIFTOOL_CSV_DELIMITER = "|"
 FIELD_SOURCE_FILE = "SourceFile"
 FIELD_FILE_NAME = "System:FileName"
 FIELD_FILE_SIZE = "System:FileSize"
+FIELD_DIRECTORY = "System:Directory"
 
 _FIELDS_BASIC = [
     FIELD_SOURCE_FILE,

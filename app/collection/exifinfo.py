@@ -123,6 +123,8 @@ class ExifInfo:
             os.fsync(p_tmp_output_file.fileno())
             # Rename the file
             os.rename(p_tmp_output_file.name, output_file)
+            # Wait for sync
+            os.system("sync")
         else:
             proc = subprocess.run(cmd, capture_output=True, text=True)
             self._data = proc.stdout

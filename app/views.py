@@ -64,6 +64,10 @@ class ModelManager(QObject):
     def set_model(self, model_data: list, fields: list | None):
         raise NotImplemented
 
+    @property
+    def row_count(self) -> int:
+        return -1
+
     def find_text(self, text):
         re = QRegularExpression(text, QRegularExpression.PatternOption.CaseInsensitiveOption)
         if self._proxy_model:
@@ -84,7 +88,7 @@ class ModelManager(QObject):
                 self.file_click.emit(file_data)
 
     @staticmethod
-    def set_file_data(item: QStandardItem, file_data: FileData):
+    def _set_file_data(item: QStandardItem, file_data: FileData):
         item.setData(file_data, ModelManager.MODELMANAGER_FILE_DATA_ROLE)
 
 
@@ -104,17 +108,11 @@ class FileSystemView(QTreeView, ModelManager):
     def __init__(self, parent):
         super().__init__(parent)
         self.setAlternatingRowColors(True)
-        # self.setShowGrid(False)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        # self.verticalHeader().setHighlightSections(False)
-        # self.verticalHeader().setSectionsMovable(True)
-        # self.verticalHeader().setSectionsClickable(True)
-        # self.horizontalHeader().setHighlightSections(False)
-        # self.horizontalHeader().setSectionsMovable(True)
-        # self.horizontalHeader().setSectionsClickable(True)
         self.setSortingEnabled(True)
         self.clicked.connect(self._clicked)
+        self._row_count = 0
 
     class LazyJsonModel(QStandardItemModel):
         """
@@ -235,7 +233,7 @@ class FileSystemView(QTreeView, ModelManager):
                     row.append(QStandardItem(""))
 
             row[0].setIcon(get_mime_type_icon(file_data_obj.mime_type))
-            ModelManager.set_file_data(row[0], file_data_obj)
+            ModelManager._set_file_data(row[0], file_data_obj)
             return row
 
         @staticmethod
@@ -383,7 +381,7 @@ class JsonView(QTreeView, ModelManager):
             std_item.setData(ModelReference(data=data, root=root_path), Qt.ItemDataRole.UserRole)
             if isinstance(icon, QIcon):
                 std_item.setIcon(icon)
-            ModelManager.set_file_data(std_item, file_data)
+            ModelManager._set_file_data(std_item, file_data)
             return std_item
 
     def set_model(self, model_data: list, fields: list | None):
@@ -479,11 +477,11 @@ class TableView(QTableView, ModelManager):
                             if file_data is not None:
                                 icon = get_mime_type_icon(file_data.mime_type)
                                 item.setIcon(icon)
-                                ModelManager.set_file_data(item, file_data)
+                                ModelManager._set_file_data(item, file_data)
                 else:
                     key = self._exif_cols[index.row()]
-                    if key in self._exif_data[0]:
-                        item = QStandardItem(str(self._exif_data[0][key]))
+                    if key in self._exif_data[0].data:
+                        item = QStandardItem(str(self._exif_data[0].data[key]))
                     else:
                         app.logger.warning(f"tag:{key} not present in current dataset. Will cache a null for it")
                         item = QVariant()
@@ -518,8 +516,10 @@ class TableView(QTableView, ModelManager):
     def set_model(self, model_data: list, fields: list):
         p_model = self.TableModel(model_data, fields)
         self.setModel(self._create_proxy_model(p_model))
-        # if len(fields) < 20 or self.model().rowCount() < 20:
-        #     self.resizeColumnsToContents()
+
+    @property
+    def row_count(self) -> int:
+        return self.model().rowCount()
 
 
 class ViewType(Enum):

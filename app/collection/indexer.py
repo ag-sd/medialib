@@ -26,7 +26,7 @@ def create_index(collection_path: str):
     try:
         db_data = db_path / "*.json"
         insert_stmt = (f"CREATE OR REPLACE TABLE {props.DB_INDEX_NAME} AS "
-                       f"SELECT * FROM read_json('{db_data}', format='array', records=true, filename=true)")
+                       f"SELECT * FROM read_json('{db_data}', format='array', records=auto, filename=true)")
         # If this collection exists, there are already indexes on it. We first drop those
         conn.execute("DROP INDEX IF EXISTS filename_idx;")
         conn.execute(insert_stmt)
@@ -91,7 +91,3 @@ def query_index(collection_path: str, query: str, path: str):
 
 def _get_db_file(collection_path: Path) -> Path:
     return collection_path / props.DB_INDEX_FILE
-
-# query_index("/mnt/dev/testing/Medialib/test-db/", "select * from v_collection where SourceFile ilike '%cara%'",
-#             ['/mnt/dev/testing/Medialib/test-db/mnt__dev__testing__media.json',
-#              '/mnt/dev/testing/Medialib/test-db/mnt__downloads__Downloads__Taking Cara Babies.json'])

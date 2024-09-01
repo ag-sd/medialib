@@ -1,6 +1,8 @@
+import concurrent.futures
 import configparser
 import datetime
 import json
+import threading
 from abc import abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +42,15 @@ class SearchResults:
     searched_paths: list
 
 
+@dataclass
+class IndexEntry:
+    root_path: str
+    index: int
+
+
+_COLLECTION_DATA_LOCK = threading.Lock()
+
+
 class Collection:
     """
     A Collection represents the consolidated list of paths that have data in the db
@@ -66,6 +77,7 @@ class Collection:
         self._created = created
         self._updated = updated
         self._path_cache = {}
+        self._item_cache = {}
         self._tags = tags
         self._validate_collection(self)
         self._is_modified = False
@@ -111,7 +123,32 @@ class Collection:
             raise ValueError("Invalid name supplied")
         self._collection_name = name
 
-    def query(self, query: str, query_paths: list):
+    def search(self, file_path: str) -> tuple:
+        """
+        Will attempt to search for a file in the database, pull all information for the supplied file, if found,
+        and return a search result object of the search
+        Args:
+            file_path: The source file path
+
+        Returns:
+            A tuple of the file data and the root path on which this file resides. If the file was not found,
+            the file data will be None
+        """
+        if file_path in self._item_cache:
+            item_address = self._item_cache[file_path]
+            if item_address.index >= 0:
+                # This item is part of a list. 
+                item = self._data(item_address.root_path)[item_address.index]
+                return item, item_address.root_path
+            else:
+                # This is a single entry
+                item = self._data(item_address.root_path)
+                return item, item_address.root_path
+        else:
+            app.logger.warning(f"{file_path} was not found in collection cache. Unable to return details...")
+            return None, None
+
+    def query(self, query: str, query_paths: list) -> SearchResults:
         """
         Queries the collection with the supplied query. The supplied query should be in ANSI SQL
         Args:
@@ -123,21 +160,51 @@ class Collection:
 
         """
         if self.type == DBType.IN_MEMORY:
-            raise CollectionQueryError(TypeError("Cannot query an in-memory collection"))
+            raise CollectionQueryError(TypeError("Cannot query an in-memory collection. Save the collection first"))
 
         app.logger.debug(f"Querying DB index with the following query: {query}")
         search_data = []
         columns = None
-        for _path in query_paths:
-            disk_cache_file_name = str(self._cache_file_path(self._create_path_key(_path)))
-            try:
-                results, columns = indexer.query_index(self.save_path, query, disk_cache_file_name)
-                search_data.append(SearchResult(results=results, path=_path))
-            except Exception as e:
-                raise CollectionQueryError(root_exception=e)
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            app.logger.info(f"Searching {len(query_paths)} paths concurrently...")
+            futures = {}
+            for _path in query_paths:
+                disk_cache_file_name = str(self._cache_file_path(self._create_path_key(_path)))
+                futures[_path] = executor.submit(indexer.query_index, self.save_path, query, disk_cache_file_name)
+
+            for _path, future in futures.items():
+                try:
+                    results, columns = future.result()
+                    search_data.append(SearchResult(results=results, path=_path))
+                except Exception as e:
+                    raise CollectionQueryError(root_exception=e)
+
+        # for _path in query_paths:
+        #     disk_cache_file_name = str(self._cache_file_path(self._create_path_key(_path)))
+        #     try:
+        #         results, columns = indexer.query_index(self.save_path, query, disk_cache_file_name)
+        #         search_data.append(SearchResult(results=results, path=_path))
+        #     except Exception as e:
+        #         raise CollectionQueryError(root_exception=e)
         return SearchResults(data=search_data, columns=columns, query=query, searched_paths=query_paths)
 
-    def data(self, path: str, refresh=False):
+    def data(self, paths: list, refresh=False):
+        results = {}
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = {}
+            for _path in paths:
+                app.logger.info(f"Threaded submission to scan for path {_path}")
+                futures[_path] = executor.submit(self._data, _path, refresh)
+
+            for _path, future in futures.items():
+                try:
+                    json_data = future.result()
+                    results[_path] = json_data
+                except Exception as e:
+                    raise CollectionQueryError(root_exception=e)
+        return results
+
+    def _data(self, path: str, refresh=False):
         """
         Checks if the path is in cache, if present, returns its data. if missing, and this is an in memory collection,
         extracts the exif info and returns it. If it's not in-memory collection, returns the data associated with this
@@ -177,8 +244,11 @@ class Collection:
             if data == "":
                 app.logger.warning(f"{key} has no exif data.")
                 data = "[]"
-            self._path_cache[key] = json.loads(data)
-            self._update_tags(path)
+
+            with _COLLECTION_DATA_LOCK:
+                self._path_cache[key] = json.loads(data)
+                self._update_tags(path)
+                self._item_cache.update(self._create_index(self._path_cache[key], path))
 
         app.logger.debug(f"Returning exif data for '{key}' from cache")
         return self._path_cache[key]
@@ -190,6 +260,18 @@ class Collection:
         """
         self._paths.extend(path for path in paths if path not in self._paths)
         self._is_modified = True
+
+    def reindex(self):
+        if self.type == DBType.IN_MEMORY or self.save_path is None:
+            raise CollectionQueryError(TypeError("Save this collection first!"))
+        if self.is_modified:
+            app.logger.debug("Collection has been modified. Will save it before reindexing it.")
+            self.save()
+        else:
+            app.logger.info("Indexing collection...")
+            if not indexer.create_index(self.save_path):
+                app.logger.exception("Unable to index collection!")
+                raise ValueError("Indexing unavailable. Please try reindexing after a few minutes")
 
     def save(self, save_path: str = None, db_type: DBType = DBType.ON_DISK):
         """
@@ -221,19 +303,19 @@ class Collection:
         self.clear_cache()
         # Set DB Type
         self._type = db_type
-        # Iterate through each path in the collection and write its metadata to disk
-        for path in self.paths:
-            self.data(path, refresh=True)
+        # Iterate through each path in the collection and write its metadata to disk concurrently
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            for path in self.paths:
+                app.logger.info(f"Threaded submission of path {path}")
+                executor.submit(self.data, [path], True)
+        app.logger.info("All threads complete")
         # Write Metadata to the collection
         app.logger.info("Writing Metadata...")
         Properties.write(self)
-        # Index the Collection
-        app.logger.info("Indexing collection...")
-        if not indexer.create_index(self.save_path):
-            app.logger.exception("Unable to index collection. It cannot be searched!")
-            raise ValueError("Unable to index this collection. Please see logs for more details")
-        app.logger.info("Done..")
         self._is_modified = False
+        # Index the Collection
+        app.logger.info("Save completed. Indexing collection now...")
+        self.reindex()
 
     def reload(self):
         if self.type == DBType.ON_DISK:
@@ -251,6 +333,32 @@ class Collection:
 
     def __repr__(self):
         return f"Collection: [Type: {self.type}] {self._collection_name}"
+
+    @staticmethod
+    def _create_index(data, path: str):
+        index = {}
+        if isinstance(data, dict):
+            # Single entry
+            if props.FIELD_SOURCE_FILE in data:
+                entry = IndexEntry(path, index=-1)
+                index[data[props.FIELD_SOURCE_FILE]] = entry
+            else:
+                app.logger.warning(f"Unable to find {props.FIELD_SOURCE_FILE} in data. This item will not be indexed")
+        elif isinstance(data, list):
+            # File list
+            for idx, node in enumerate(data):
+                if isinstance(node, dict):
+                    if props.FIELD_SOURCE_FILE in node:
+                        entry = IndexEntry(path, index=idx)
+                        index[node[props.FIELD_SOURCE_FILE]] = entry
+                    else:
+                        app.logger.warning(
+                            f"Unable to find {props.FIELD_SOURCE_FILE} in data. This item will not be indexed")
+                else:
+                    app.logger.warning(f"Unexpected entry in list")
+        else:
+            raise ValueError("unexpected data received to index")
+        return index
 
     @staticmethod
     def _validate_collection(collection):
