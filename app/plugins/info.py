@@ -142,7 +142,7 @@ class FileInfoPlugin(QDockWidget, WindowInfo, FileClickHandler):
         return True
 
     def handle_file_click(self, file_data: list, fields: list):
-        self._property_widget.show_properties(file_data[0].data[0], fields)
+        self._property_widget.show_properties(file_data[0].data, fields)
 
     def windowIcon(self) -> QIcon:
         return self.icon

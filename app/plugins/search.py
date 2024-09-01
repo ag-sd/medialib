@@ -224,8 +224,8 @@ class QueryWidget(QDockWidget, WindowInfo, HasCollectionDisplaySupport, SearchEv
         super().__init__(parent=parent)
         self._query_text = AutoCompletionTextEdit(parent=self)
         self._highlighter = SQLHighlighter(self._query_text.document())
-        self.toolbar = PluginToolBar(self, self.name)
-        self.toolbar.button_clicked.connect(self._toolbar_button_clicked)
+        self._toolbar = PluginToolBar(self, self.name)
+        self._toolbar.button_clicked.connect(self._toolbar_button_clicked)
         self._init_ui()
 
     def _init_ui(self):
@@ -233,9 +233,9 @@ class QueryWidget(QDockWidget, WindowInfo, HasCollectionDisplaySupport, SearchEv
         self._query_text.setPlaceholderText("Search this collection using SQL statements\n"
                                             "Ex: Select * from collection where 1=1")
 
-        self.toolbar.add_button("Run", "media-playback-start", "F9")
-        self.toolbar.add_button("Clear", "edit-clear")
-        self.setTitleBarWidget(self.toolbar)
+        self._toolbar.add_button("Run", "media-playback-start", "F9")
+        self._toolbar.add_button("Clear", "edit-clear")
+        self.setTitleBarWidget(self._toolbar)
         self.setWidget(self._query_text)
 
     @property

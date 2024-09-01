@@ -22,7 +22,8 @@ class JsonViewTests(unittest.TestCase):
             db = test_utils.create_test_media_db(db_path, test_paths)
             model_data = []
             for path in db.paths:
-                model_data.append(ModelData(data=db.data(path), path=path))
+                for _path, entry in db.data([path]).items():
+                    model_data.append(ModelData(data=entry, path=_path))
 
             self._json_view.set_model(model_data, db.tags)
             self.assertEqual(self._json_view.model().rowCount(), 2)
@@ -86,7 +87,8 @@ class FileSystemViewTests(unittest.TestCase):
             db = test_utils.create_test_media_db(db_path, test_paths)
             model_data = []
             for path in db.paths:
-                model_data.append(ModelData(data=db.data(path), path=path))
+                for _path, entry in db.data([path]).items():
+                    model_data.append(ModelData(data=entry, path=_path))
 
             self._fs_view.set_model(model_data, db.tags)
             self.assertEqual(self._fs_view.model().rowCount(), 2)
@@ -103,7 +105,8 @@ class FileSystemViewTests(unittest.TestCase):
             db = test_utils.create_test_media_db(db_path, test_paths)
             model_data = []
             for path in db.paths:
-                model_data.append(ModelData(data=db.data(path), path=path))
+                for _path, entry in db.data([path]).items():
+                    model_data.append(ModelData(data=entry, path=_path))
 
             self._fs_view.set_model(model_data, db.tags)
             self.assertEqual(self._fs_view.model().rowCount(), 1)
@@ -133,7 +136,8 @@ class TableViewTests(unittest.TestCase):
             db = test_utils.create_test_media_db(db_path, test_paths)
             model_data = []
             for path in db.paths:
-                model_data.append(ModelData(data=db.data(path), path=path))
+                for _path, entry in db.data([path]).items():
+                    model_data.append(ModelData(data=entry, path=_path))
 
             self._table_view.set_model(model_data, db.tags)
             self.assertEqual(self._table_view.model().rowCount(), 6)

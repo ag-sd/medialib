@@ -1,13 +1,12 @@
 import argparse
 import sys
-import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QUrl, QCoreApplication
+from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices, QIcon
-from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, QLabel, QMessageBox, QFileDialog, \
-    QProgressBar
+from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, QLabel, QMessageBox, QFileDialog
 
 import app
 import apputils
@@ -19,11 +18,18 @@ from app.collection.ds import Collection, CollectionNotFoundError, CorruptedColl
     CollectionQueryError
 from app.plugins import search, info
 from app.plugins.framework import SearchEventHandler, FileClickHandler, FileData
-from app.runtime import JobManager
+from app.tasks import TaskManager, Task, TaskStatus
 from app.views import ViewType, ModelData, ModelManager
 
 
 class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
+    _MLIB_TASK_PATH_CHANGE = "paths-changed"
+    _MLIB_TASK_QUERY_SEARCH = "query-search"
+    _MLIB_TASK_REFRESH_PATHS = "refresh-paths"
+    _MLIB_TASK_SAVE = "save-collection"
+    _MLIB_TASK_REINDEX = "reindex-collection"
+
+    _MLIB_UI_STATUS_MESSAGE_TIMEOUT = 5000
 
     def __init__(self, app_args: argparse.Namespace):
         """
@@ -51,10 +57,9 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         self.statusBar().addPermanentWidget(self.current_view_details)
 
         self._plugins = []
-        self._job_manager = JobManager(self)
-        self._job_manager.work_complete.connect(self._background_work_complete_event)
-        self.statusBar().addWidget(self._job_manager)
-        self.statusBar().show()
+        self._task_manager = TaskManager(self)
+        self._task_manager.work_complete.connect(self._background_task_complete_event)
+        self.statusBar().addPermanentWidget(self._task_manager)
 
         # Menu Bar
         app.logger.debug("Configure Menubar ...")
@@ -74,7 +79,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         self._view_event(ViewAction.VIEW, self.current_view_type)
         self.setCentralWidget(dummy_widget)
         self.setWindowTitle(app.__APP_NAME__)
-        self.setMinimumWidth(768)
+        self.setMinimumWidth(1200)
         self.setMinimumHeight(768)
         self.setWindowIcon(QIcon.fromTheme("medialib-icon"))
         # Present App
@@ -100,6 +105,9 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
     def closeEvent(self, event):
         if self.collection:
             self.shut_collection()
+        while self._task_manager.active_tasks > 0:
+            app.logger.info(f"Waiting for {self._task_manager.active_tasks} jobs to finish...")
+            time.sleep(1)
         app.logger.debug(f"{app.__APP_NAME__} is exiting. Goodbye!")
         super().closeEvent(event)
 
@@ -158,7 +166,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                     app.logger.warning("Unable to save this collection as save path isn't provided. Requesting one now")
                     self._db_event(DBAction.SAVE_AS, event_args)
                 else:
-                    self._do_work_in_thread("save-collection", self.collection.save)
+                    self._task_manager.start_task(self._MLIB_TASK_SAVE, self.collection.save, {})
 
             case DBAction.SAVE_AS:
                 # First get save location
@@ -167,8 +175,8 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                 # Then configure the collection
                 if save_location != "":
                     app.logger.debug(f"DB will be saved to {save_location}")
-                    self._do_work_in_thread("save-collection",
-                                            self.collection.save, kwargs={"save_path": save_location})
+                    self._task_manager.start_task(self._MLIB_TASK_SAVE, self.collection.save,
+                                                  {"save_path": save_location})
                 else:
                     app.logger.debug("User canceled save action")
 
@@ -197,6 +205,10 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                 selected_paths = event_args
                 if len(selected_paths) > 0:
                     self._refresh_paths(selected_paths)
+
+            case DBAction.REINDEX_COLLECTION:
+                self._task_manager.start_task(self._MLIB_TASK_REINDEX, self.collection.reindex, {})
+
             case DBAction.PATH_CHANGE:
                 self._paths_changed(_paths=event_args)
 
@@ -236,8 +248,52 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                                                                       PLUGINS=[p.name for p in self._plugins])
                                   )
 
-    def _background_work_complete_event(self, task_name):
-        print(task_name)
+    def _background_task_complete_event(self, task: Task):
+        # Catch exceptions right up here
+        if task.status == TaskStatus.FAILED:
+            apputils.show_exception(self, task.error)
+            return
+
+        match task.id:
+            case self._MLIB_TASK_PATH_CHANGE:
+                try:
+                    model_data = []
+                    for path, result in task.result.items():
+                        data = ModelData(data=result, path=path)
+                        model_data.append(data)
+                    self._display_model_data(model_data, task.result.keys(), self.collection.tags)
+                    self.statusBar().showMessage(f"Data for {task.result.keys()} paths fetched "
+                                                 f"in {task.time_taken} seconds.", self._MLIB_UI_STATUS_MESSAGE_TIMEOUT)
+                except CollectionQueryError as d:
+                    apputils.show_exception(self, d)
+                except Exception as exception:
+                    apputils.show_exception(self, exception)
+
+            case self._MLIB_TASK_QUERY_SEARCH:
+                try:
+                    model_data = []
+                    for search_result in task.result.data:
+                        if len(search_result.results) > 0:
+                            model_data.append(ModelData(data=search_result.results, path=search_result.path))
+                    self._display_model_data(model_data, task.result.searched_paths, task.result.columns)
+                    self.statusBar().showMessage(f"Search completed in {task.time_taken} seconds.",
+                                                 self._MLIB_UI_STATUS_MESSAGE_TIMEOUT)
+                except CollectionQueryError as d:
+                    apputils.show_exception(self, d)
+
+            case self._MLIB_TASK_REFRESH_PATHS:
+                paths = task.args["paths"]
+                self.statusBar().showMessage(f"Path refresh completed for {paths} in {task.time_taken} seconds.",
+                                             self._MLIB_UI_STATUS_MESSAGE_TIMEOUT)
+                app.logger.info(f"Path refresh completed for {paths} in {task.time_taken} seconds")
+
+            case self._MLIB_TASK_SAVE:
+                self.statusBar().showMessage(f"Save collection completed in {task.time_taken} seconds.",
+                                             self._MLIB_UI_STATUS_MESSAGE_TIMEOUT)
+
+            case self._MLIB_TASK_REINDEX:
+                self.statusBar().showMessage(f"Reindex collection completed in {task.time_taken} seconds.",
+                                             self._MLIB_UI_STATUS_MESSAGE_TIMEOUT)
 
     def register_plugin(self, plugin):
         plugin.setVisible(plugin.is_visible_on_start)
@@ -254,16 +310,9 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         match search_type:
             case SearchEventHandler.SearchType.QUERY:
                 app.logger.debug("Searching collection with paths provided")
-                try:
-                    search_paths = self.menubar.get_selected_collection_paths()
-                    results = self.collection.query(search_scope, search_paths)
-                    model_data = []
-                    for search_result in results.data:
-                        if len(search_result.results) > 0:
-                            model_data.append(ModelData(data=search_result.results, path=search_result.path))
-                    self._display_model_data(model_data, results.searched_paths, results.columns)
-                except CollectionQueryError as d:
-                    apputils.show_exception(self, d)
+                self._task_manager.start_task(self._MLIB_TASK_QUERY_SEARCH, self.collection.query, {
+                    "query": search_scope, "query_paths": self.menubar.get_selected_collection_paths()
+                })
             case SearchEventHandler.SearchType.VISUAL:
                 if isinstance(self.current_view, ModelManager):
                     app.logger.debug(f"Finding text in visual interface {search_scope}")
@@ -272,8 +321,8 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
     def _refresh_paths(self, paths):
         app.logger.debug(f"Refreshing {len(paths)} path(s)")
         self.collection.clear_cache()
-        for path in paths:
-            self.collection.data(path, refresh=True)
+        self._task_manager.start_task(self._MLIB_TASK_REFRESH_PATHS, self.collection.data,
+                                      {"paths": paths, "refresh": True})
 
     def _open_collection(self, db_path: str):
         try:
@@ -289,18 +338,11 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
 
     def _paths_changed(self, _paths):
         app.logger.debug(f"Selection changed to {_paths}")
-        model_data = []
-        try:
-            for path in _paths:
-                self._job_manager.do_work(self.collection.data, {"path": str(path)})
-                # Data is added to cache, so pick it up from cache
-                data = ModelData(data=self.collection.data(path=str(path)), path=path)
-                model_data.append(data)
-            self._display_model_data(model_data, _paths, self.collection.tags)
-        except CollectionQueryError as d:
-            apputils.show_exception(self, d)
-        except Exception as exception:
-            apputils.show_exception(self, exception)
+        if len(_paths) > 0:
+            self._task_manager.start_task(self._MLIB_TASK_PATH_CHANGE, self.collection.data, {"paths": _paths})
+        else:
+            app.logger.debug("Empty path change request will not be submitted to collection")
+            self._display_model_data([], _paths, self.collection.tags)
 
     def _view_event(self, action, event_args):
         match action:
@@ -350,43 +392,20 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
             self.current_view_details.setToolTip("")
 
     def _file_click(self, file_data: FileData):
-        # Query the database for this file
-        f_info = self.collection.search(str(Path(file_data.directory) / Path(file_data.file_name)), file_data.root_path)
-        if len(f_info.data) == 1:
-            model_data = ModelData(data=f_info.data[0].results, path=f_info.data[0].path)
+        # Query the collection for this file
+        file, root_path = self.collection.search(str(Path(file_data.directory) / Path(file_data.file_name)))
+        if file is not None:
+            model_data = ModelData(data=file, path=root_path)
             for plugin in self._plugins:
                 if isinstance(plugin, FileClickHandler):
-                    plugin.handle_file_click([model_data], f_info.columns)
+                    plugin.handle_file_click([model_data], self.collection.tags)
         else:
-            app.logger.error(f"Unexpected search result returned from collection {f_info}")
+            self.statusBar().showMessage(f"{file_data.file_name} was not found in collection.",
+                                         self._MLIB_UI_STATUS_MESSAGE_TIMEOUT)
 
     def _get_new_path(self, is_dir=False) -> list:
         exiftool_file_filter = f"ExifTool Supported Files (*.{' *.'.join(exifinfo.SUPPORTED_FORMATS.split(' '))})"
         return apputils.get_new_paths(parent=self, is_dir=is_dir, file_filter=exiftool_file_filter)
-
-    def _do_work_in_thread(self, task_name, work_func, kwargs=None):
-        self._job_manager.do_work(task_name, work_func, kwargs)
-        # progress = QProgressBar()
-        # progress.setMaximum(pr_max)
-        # progress.setMinimum(pr_min)
-        # window_title = self.windowTitle()
-        # self.setWindowTitle(title)
-        # self.menubar.setEnabled(False)
-        # self.statusBar().addWidget(progress)
-        # self.statusBar().show()
-        # work_thread = threading.Thread(target=work_func, kwargs=kwargs, daemon=True)
-        # work_thread.start()
-        # app.logger.info(f"THREAD:{work_thread.ident} : Started work on "
-        #                 f"function `{work_func.__name__}` with args {kwargs} ...")
-        # app.logger.info(title)
-        # work_thread.join()
-        # while work_thread.is_alive():
-        #     QCoreApplication.processEvents()
-        # self.statusBar().removeWidget(progress)
-        # self.setWindowTitle(window_title)
-        # self.menubar.setEnabled(True)
-        # self.statusBar().showMessage(success_msg, 5000)
-        # app.logger.info(f"THREAD:{work_thread.ident} : Work completed : {success_msg}")
 
 
 if __name__ == '__main__':
@@ -423,6 +442,7 @@ if __name__ == '__main__':
         search.FindWidget(medialib_app),
         search.QueryWidget(medialib_app),
         info.FileInfoPlugin(medialib_app),
+        info.MapViewer(medialib_app)
     ]
     for medialib_app_startup_plugin in medialib_app_startup_plugins:
         if args.disableplugins and medialib_app_startup_plugin.name in args.disableplugins:

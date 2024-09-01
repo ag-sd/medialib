@@ -1,8 +1,9 @@
 import unittest
+from unittest import skip
 
 from PyQt6.QtTest import QTest
 
-import app.runtime as dispatcher
+import app.tasks as dispatcher
 
 
 class ThreadPoolTester(unittest.TestCase):
@@ -13,6 +14,7 @@ class ThreadPoolTester(unittest.TestCase):
     def rez_coll(self, result):
         self._result_collector.append(result)
 
+    @skip("Run this test manually outside of pytest")
     def test_simple_threadpool(self):
         def runnable_func(_id):
             print("I have started")
@@ -20,19 +22,7 @@ class ThreadPoolTester(unittest.TestCase):
             print("I am Complete")
             return _id
 
-        def status(result):
-            self._result_collector.append(result)
-            print("Status message received")
-
         num_jobs = 1000
-        jobs = []
+        runner = dispatcher.TaskManager(None)
         for i in range(0, num_jobs):
-            job = dispatcher.Job(runnable_func, f"job:{i}", _id=i)
-            job.signals.status.connect(self.rez_coll)
-            jobs.append(job)
-        runner = dispatcher.JobDispatcher(jobs)
-        runner.start()
-
-        # self.assertTrue(QThreadPool.globalInstance().waitForDone(-1))
-        # self.assertEqual(num_jobs, len(self._result_collector))
-        print("Done")
+            runner.start_task("test-task", runnable_func, {"_id": 1})

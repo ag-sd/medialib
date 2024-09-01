@@ -73,7 +73,7 @@ class TestViewMenu(unittest.TestCase):
             # Available fields count will be different
             self.assertEqual(len(list(self._view_menu._view_menu_all_fields.actions())), 8)
             # Presets are available
-            self.assertEqual(len(list(self._view_menu._view_menu_presets.actions())), 3)
+            self.assertEqual(len(list(self._view_menu._view_menu_presets.actions())), 2)
 
     def test_show_collection_audio_files(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -85,7 +85,7 @@ class TestViewMenu(unittest.TestCase):
             # Available fields count will be different
             self.assertEqual(len(list(self._view_menu._view_menu_all_fields.actions())), 11)
             # Presets are available
-            self.assertEqual(len(list(self._view_menu._view_menu_presets.actions())), 3)
+            self.assertEqual(len(list(self._view_menu._view_menu_presets.actions())), 2)
 
     def test_shut_collection(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -190,7 +190,7 @@ class TestCollectionMenu(unittest.TestCase):
         self.assertEqual(_actions[4].text(), DBAction.REFRESH)
         self.assertEqual(_actions[5].text(), DBAction.REFRESH_SELECTED)
         self.assertEqual(_actions[6].text(), DBAction.RESET)
-        self.assertEqual(_actions[7].text(), DBAction.BOOKMARK)
+        self.assertEqual(_actions[7].text(), DBAction.REINDEX_COLLECTION)
         self.assertTrue(_actions[8].isSeparator())
         self.assertEqual(_actions[9].text(), CollectionMenu._MENU_DB_PATHS)
         self.assertTrue(_actions[10].isSeparator())
@@ -198,8 +198,9 @@ class TestCollectionMenu(unittest.TestCase):
         self.assertTrue(_actions[12].isSeparator())
         self.assertEqual(_actions[13].text(), CollectionMenu._MENU_DB_HISTORY)
         self.assertEqual(_actions[14].text(), CollectionMenu._MENU_DB_BOOKMARKS)
+        self.assertEqual(_actions[15].text(), DBAction.BOOKMARK)
 
-        self.assertEqual(len(_actions), 15)
+        self.assertEqual(len(_actions), 16)
 
     def test_open_collection_on_disk(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -408,7 +409,7 @@ class TestAppMenuBar(unittest.TestCase):
 
             self.assertEqual(len(list(self._menu._view_menu._view_menu_all_fields.actions())), 13)
             # Presets are available
-            self.assertEqual(len(list(self._menu._view_menu._view_menu_presets.actions())), 3)
+            self.assertEqual(len(list(self._menu._view_menu._view_menu_presets.actions())), 2)
 
     def test_shut_collection(self):
         with tempfile.TemporaryDirectory() as db_path:

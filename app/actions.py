@@ -57,10 +57,11 @@ class DBAction(StrEnum):
     SAVE_AS = "Save As..."
     REFRESH = "Refresh"
     REFRESH_SELECTED = "Refresh Selected Paths"
+    REINDEX_COLLECTION = "Re-index"
     RESET = "Reset"
     BOOKMARK = "Add or Remove Favorite"
-    OPEN_DB = "Open Collection..."
-    SHUT_DB = "Close Collection"
+    OPEN_DB = "Open..."
+    SHUT_DB = "Close"
     PATH_CHANGE = "Path Change"
 
 
@@ -132,26 +133,15 @@ class ViewMenu(QMenu, HasCollectionDisplaySupport):
 
     def _update_all_fields_menu(self, db: Collection):
         self._view_menu_all_fields.clear()
-        orphan_fields_added = False
-        tag_groups = {}
-        for key in db.tags:
-            self._all_tags.append(key)
-            tokens = key.split(":")
-            if len(tokens) == 1:
-                cb = self._create_checkbox(key, self._view_menu_all_fields, tokens[0])
+        groups = apputils.create_tag_groups(db.tags)
+        if props.DB_TAG_GROUP_DEFAULT in groups:
+            for key in groups[props.DB_TAG_GROUP_DEFAULT]:
+                cb = self._create_checkbox(key, self._view_menu_all_fields, key)
                 self._add_menu_item(self._view_menu_all_fields, cb)
-                orphan_fields_added = True
-            elif len(tokens) == 2:
-                if tokens[0] not in tag_groups:
-                    tag_groups[tokens[0]] = []
-                tag_groups[tokens[0]].append(tokens[1])
-            else:
-                app.logger.warning(f"Unhandled field {key} will not be shown in the view")
-
-        if orphan_fields_added:
             self._view_menu_all_fields.addSeparator()
+            del groups[props.DB_TAG_GROUP_DEFAULT]
 
-        for group, items in sorted(tag_groups.items()):
+        for group, items in sorted(groups.items()):
             group_menu = QMenu(group, parent=self._view_menu_all_fields)
             for key in sorted(items):
                 field_name = f"{group}:{key}"
@@ -229,6 +219,7 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
         self._add_bookmark.setEnabled(not collection.type == DBType.IN_MEMORY)
         self._save_as.setEnabled(True)
         self._refresh.setEnabled(True)
+        self._reindex.setEnabled(True)
         self._selective_refresh.setEnabled(True)
         self._shut_db.setEnabled(True)
         self._paths_menu.setEnabled(True)
@@ -246,6 +237,7 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
         self._save_as.setEnabled(False)
         self._reset.setEnabled(False)
         self._refresh.setEnabled(False)
+        self._reindex.setEnabled(False)
         self._selective_refresh.setEnabled(False)
         self._add_bookmark.setEnabled(False)
         self._shut_db.setEnabled(False)
@@ -289,6 +281,9 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
                                                          enabled=False,
                                                          tooltip="Reload the exif data for the the selected "
                                                                  "collection paths from disk")
+        self._reindex = apputils.create_action(self, DBAction.REINDEX_COLLECTION, shortcut=None, icon="view-refresh",
+                                               tooltip="Reindex this collection for faster searches",
+                                               func=self._db_event, enabled=False)
         self._reset = apputils.create_action(self, DBAction.RESET, icon="view-restore",
                                              tooltip="Reset this collection",
                                              func=self._db_event, enabled=False)
@@ -316,7 +311,7 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
         self.addAction(self._refresh)
         self.addAction(self._selective_refresh)
         self.addAction(self._reset)
-        self.addAction(self._add_bookmark)
+        self.addAction(self._reindex)
         self.addSeparator()
         self.addMenu(self._paths_menu)
         self.addSeparator()
@@ -324,6 +319,7 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
         self.addSeparator()
         self.addMenu(self._history_menu)
         self.addMenu(self._bookmarks_menu)
+        self.addAction(self._add_bookmark)
 
     def _update_db_list(self, menu: QMenu, sub_items: list, icon_name: str):
         _clear_menu(menu)

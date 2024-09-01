@@ -91,10 +91,3 @@ def query_index(collection_path: str, query: str, path: str):
 
 def _get_db_file(collection_path: Path) -> Path:
     return collection_path / props.DB_INDEX_FILE
-
-# query_index("/mnt/dev/testing/Medialib/test-db/", "select * from v_collection where SourceFile ilike '%cara%'",
-#             ['/mnt/dev/testing/Medialib/test-db/mnt__dev__testing__media.json',
-#              '/mnt/dev/testing/Medialib/test-db/mnt__downloads__Downloads__Taking Cara Babies.json'])
-
-
-create_index("/mnt/dev/testing/Medialib/threaded-scan/")

@@ -11,18 +11,14 @@ TODO
 
 ## TODO
 ### Currently work priority
-1. Rename Collection to Collection
-2. Rename Path to Directory
-3. File System View
-4. Support for really large collections
-5. Export data
-6. Paginated results
-7. Find in virtual table
-8. Private Collections: Zipped / Mark Private
-9. System diagram using Mermaid
-10. Data diagram using Mermaid
-11. Encrypted collections
-12. Cached preview objects
+1. Private Collections: Zipped / Mark Private - Ctrl+Open will make DB private
+2. Support for really large collections
+3. Export data
+4. Find in virtual table
+5. System diagram using Mermaid
+6. Data diagram using Mermaid
+7. Encrypted collections
+8. Cached preview objects
 
 ### Backlog
 - DB support
@@ -33,12 +29,13 @@ TODO
   - Save Collection
     - Storing fingerprints for images, videos and music
     - Custom `exiftool` Formats
-- Improve performance of views
 - Map view
 - Thumb view
 - Custom plugins per MimeType i.e Images: Dupe Finder
 - Nemo app integration
 - SQL searching of in-memory Collections
+  - Simultaneously fire a reindex request
+  - Fire a reindex when search window opens
 
 ### Done
 - [x] Remove toolbar and make it a menu instead
@@ -59,3 +56,15 @@ TODO
 - [x] Fast load of JSON views
 - [x] Collection operations to be atomic, so that the DB can be queried while updates/refreshes are taking place
 - [x] Dynamic Menus
+- [x] Rename Collection to Collection
+- [x] File System View
+- [x] Improve performance of views
+- [x] Support for reindexing data on demand
+
+### Cancelled Tasks
+1. ~~Rename Path to Directory~~
+2. ~~Paginated results~~
+
+### Issues
+1. ~~When a new path is added to a saved collection, the info service does not work because the new path is not yet indexed~~
+2. Filesystem view is hanging application. Test with 09.24.MLTEST collection
