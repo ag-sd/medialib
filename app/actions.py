@@ -2,7 +2,7 @@ import logging
 from enum import StrEnum
 from functools import partial
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QIcon, QActionGroup
 from PyQt6.QtWidgets import QMenuBar, QMenu, QCheckBox
 
@@ -61,6 +61,7 @@ class DBAction(StrEnum):
     RESET = "Reset"
     BOOKMARK = "Add or Remove Favorite"
     OPEN_DB = "Open..."
+    OPEN_PRIVATE_DB = "Open Private Collection..."
     SHUT_DB = "Close"
     PATH_CHANGE = "Path Change"
 
@@ -216,7 +217,7 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
         # You can only save to an existing collection. Default collections need to be 'saved as'
         self._save.setEnabled(not collection.type == DBType.IN_MEMORY)
         self._reset.setEnabled(not collection.type == DBType.IN_MEMORY)
-        self._add_bookmark.setEnabled(not collection.type == DBType.IN_MEMORY)
+        self._add_bookmark.setEnabled(not (collection.type == DBType.IN_MEMORY or collection.is_private))
         self._save_as.setEnabled(True)
         self._refresh.setEnabled(True)
         self._reindex.setEnabled(True)
@@ -292,7 +293,11 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
                                                     func=self._db_event, enabled=False)
         self._open_db = apputils.create_action(self, DBAction.OPEN_DB, shortcut="Ctrl+D",
                                                icon="collection-open", func=self._db_event,
-                                               tooltip="Open a non registered private collection")
+                                               tooltip="Open a collection")
+        self._open_private_db = apputils.create_action(self, DBAction.OPEN_PRIVATE_DB, shortcut=None,
+                                                       icon="collection-open", func=self._db_event,
+                                                       tooltip="Open a collection which will not be recorded")
+        self._open_private_db.setVisible(False)
 
         self._paths_menu = QMenu(self._MENU_DB_PATHS, self)
         self._paths_menu.setIcon(QIcon.fromTheme("collection-paths"))
@@ -316,6 +321,7 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
         self.addMenu(self._paths_menu)
         self.addSeparator()
         self.addAction(self._open_db)
+        self.addAction(self._open_private_db)
         self.addSeparator()
         self.addMenu(self._history_menu)
         self.addMenu(self._bookmarks_menu)
@@ -337,6 +343,13 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
 
     def _selective_refresh_event(self, _):
         self.collection_event.emit(DBAction.REFRESH_SELECTED, self.selected_paths)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Control:
+            self._open_private_db.setVisible(True)
+
+    def hideEvent(self, a0):
+        self._open_private_db.setVisible(False)
 
 
 class HelpMenu(QMenu):
@@ -405,10 +418,11 @@ class HelpMenu(QMenu):
             case logging.ERROR:
                 self._error.setChecked(True)
 
-    def set_application_log_level(self, log_level):
+    def set_application_log_level(self, log_level, save_setting: bool = True):
         app.logger.critical(f"Log level changed to {logging.getLevelName(log_level)}")
         app.logger.setLevel(log_level)
-        appsettings.set_log_level(log_level)
+        if save_setting:
+            appsettings.set_log_level(log_level)
         self._set_log_level_menu_option(log_level)
 
 
@@ -479,6 +493,9 @@ class AppMenuBar(QMenuBar, HasCollectionDisplaySupport):
 
     def update_available_views(self, available_views: list):
         self._view_menu.update_available_views(available_views)
+
+    def set_application_log_level(self, log_level, session_only: bool = True):
+        self._help_menu.set_application_log_level(log_level, not session_only)
 
     def register_plugin(self, plugin):
         pl_action = plugin.toggleViewAction()

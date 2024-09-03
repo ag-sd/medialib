@@ -2,12 +2,12 @@ import logging
 import tempfile
 import unittest
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QAction
+from PyQt6.QtCore import Qt, QEvent
+from PyQt6.QtGui import QAction, QKeyEvent
 from PyQt6.QtWidgets import QWidget, QWidgetAction, QDockWidget
 
 import app
-from app import actions, apputils
+from app import actions, apputils, appsettings
 from app.actions import ViewMenu, HelpMenu, MediaLibAction, FileMenu, CollectionMenu, DBAction, AppMenuBar
 from app.plugins.framework import WindowInfo
 from app.views import ViewType
@@ -150,6 +150,11 @@ class TestHelpMenu(unittest.TestCase):
         self._help_menu._log_level_changed(self._help_menu.LOG_ERROR)
         self.assertEqual(logging.ERROR, app.logger.level)
 
+    def test_set_log_level_session(self):
+        self._help_menu.set_application_log_level(logging.ERROR, False)
+        self.assertEqual(logging.ERROR, app.logger.level)
+        self.assertEqual(self._log_level, appsettings.get_log_level())
+
 
 class TestFileMenu(unittest.TestCase):
 
@@ -195,12 +200,20 @@ class TestCollectionMenu(unittest.TestCase):
         self.assertEqual(_actions[9].text(), CollectionMenu._MENU_DB_PATHS)
         self.assertTrue(_actions[10].isSeparator())
         self.assertEqual(_actions[11].text(), DBAction.OPEN_DB)
-        self.assertTrue(_actions[12].isSeparator())
-        self.assertEqual(_actions[13].text(), CollectionMenu._MENU_DB_HISTORY)
-        self.assertEqual(_actions[14].text(), CollectionMenu._MENU_DB_BOOKMARKS)
-        self.assertEqual(_actions[15].text(), DBAction.BOOKMARK)
+        self.assertEqual(_actions[12].text(), DBAction.OPEN_PRIVATE_DB)
+        self.assertTrue(_actions[13].isSeparator())
+        self.assertEqual(_actions[14].text(), CollectionMenu._MENU_DB_HISTORY)
+        self.assertEqual(_actions[15].text(), CollectionMenu._MENU_DB_BOOKMARKS)
+        self.assertEqual(_actions[16].text(), DBAction.BOOKMARK)
 
-        self.assertEqual(len(_actions), 16)
+        self.assertEqual(len(_actions), 17)
+        self.assertFalse(_actions[12].isVisible())
+
+    def test_open_private_collection_option(self):
+        _actions = list(self._db_menu.actions())
+        self.assertFalse(_actions[12].isVisible())
+        self._db_menu.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Control, Qt.KeyboardModifier.NoModifier))
+        self.assertTrue(_actions[12].isVisible())
 
     def test_open_collection_on_disk(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -214,6 +227,41 @@ class TestCollectionMenu(unittest.TestCase):
             self.assertTrue(self._db_action(DBAction.REFRESH).isEnabled())
             self.assertTrue(self._db_action(DBAction.REFRESH_SELECTED).isEnabled())
             self.assertTrue(self._db_action(DBAction.BOOKMARK).isEnabled())
+            self.assertTrue(self._db_action(DBAction.SHUT_DB).isEnabled())
+            self.assertTrue(self._db_menu._paths_menu.isEnabled())
+
+            self.assertEqual(len(self._db_menu._paths_menu.actions()), len(test_paths))
+
+    def test_open_private_collection_on_disk(self):
+        with tempfile.TemporaryDirectory() as db_path:
+            test_paths = test_utils.get_test_paths()
+            db = test_utils.create_test_media_db(db_path, test_paths)
+            db.save()
+            db.is_private = True
+            self._db_menu.show_collection(db)
+            self.assertTrue(self._db_action(DBAction.SAVE).isEnabled())
+            self.assertTrue(self._db_action(DBAction.SAVE_AS).isEnabled())
+            self.assertTrue(self._db_action(DBAction.RESET).isEnabled())
+            self.assertTrue(self._db_action(DBAction.REFRESH).isEnabled())
+            self.assertTrue(self._db_action(DBAction.REFRESH_SELECTED).isEnabled())
+            self.assertFalse(self._db_action(DBAction.BOOKMARK).isEnabled())
+            self.assertTrue(self._db_action(DBAction.SHUT_DB).isEnabled())
+            self.assertTrue(self._db_menu._paths_menu.isEnabled())
+
+            self.assertEqual(len(self._db_menu._paths_menu.actions()), len(test_paths))
+
+    def test_open_private_collection_in_memory(self):
+        with tempfile.TemporaryDirectory() as db_path:
+            test_paths = test_utils.get_test_paths()
+            db = test_utils.create_test_media_db(db_path, test_paths)
+            db.is_private = True
+            self._db_menu.show_collection(db)
+            self.assertFalse(self._db_action(DBAction.SAVE).isEnabled())
+            self.assertTrue(self._db_action(DBAction.SAVE_AS).isEnabled())
+            self.assertFalse(self._db_action(DBAction.RESET).isEnabled())
+            self.assertTrue(self._db_action(DBAction.REFRESH).isEnabled())
+            self.assertTrue(self._db_action(DBAction.REFRESH_SELECTED).isEnabled())
+            self.assertFalse(self._db_action(DBAction.BOOKMARK).isEnabled())
             self.assertTrue(self._db_action(DBAction.SHUT_DB).isEnabled())
             self.assertTrue(self._db_menu._paths_menu.isEnabled())
 
@@ -349,10 +397,10 @@ class TestCollectionMenu(unittest.TestCase):
             db = test_utils.create_test_media_db(db_path, test_paths)
             self._db_menu.show_collection(db)
             self._db_menu.collection_event.connect(cb_func)
-            self._db_action(DBAction.SAVE_AS).trigger() # Will trigger
-            self._db_action(DBAction.SAVE).trigger() # Will not trigger as it's disabled for in-memory db
-            self._db_action(DBAction.SHUT_DB).trigger() # Will trigger
-            self._db_action(DBAction.REFRESH).trigger() # Will trigger
+            self._db_action(DBAction.SAVE_AS).trigger()  # Will trigger
+            self._db_action(DBAction.SAVE).trigger()  # Will not trigger as it's disabled for in-memory db
+            self._db_action(DBAction.SHUT_DB).trigger()  # Will trigger
+            self._db_action(DBAction.REFRESH).trigger()  # Will trigger
             self.assertTrue(self._callback_handled)
             self.assertEqual(self._callback_counter, 0)
 
@@ -447,6 +495,12 @@ class TestAppMenuBar(unittest.TestCase):
             self._menu.show_collection(db)
             self.assertEqual(2, len(self._menu.get_selected_collection_paths()))
 
+    def test_set_log_level_session(self):
+        og_log_level = app.logger.level
+        self._menu.set_application_log_level(logging.ERROR, True)
+        self.assertEqual(logging.ERROR, app.logger.level)
+        self.assertEqual(og_log_level, appsettings.get_log_level())
+
     def test_register_plugin(self):
         class DummyPl(QDockWidget, WindowInfo):
             @property
@@ -466,4 +520,3 @@ class TestAppMenuBar(unittest.TestCase):
 
     def _db_action(self, action_name):
         return actions._find_action(action_name, self._menu._db_menu.actions())
-

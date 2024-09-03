@@ -1,4 +1,5 @@
 import argparse
+import logging
 import sys
 import time
 from datetime import datetime
@@ -121,7 +122,8 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                 plugin.show_collection(self.collection)
 
         # Update display
-        self.setWindowTitle(f"{self.collection.name} : {app.__APP_NAME__}")
+        self.setWindowTitle(f"{self.collection.name} : {app.__APP_NAME__}"
+                            f"{' !!! PRIVATE !!!' if collection.is_private else ''}")
         self._paths_changed(self.collection.paths)
 
     def shut_collection(self):
@@ -161,36 +163,22 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                 appsettings.set_bookmarks(bookmarks)
                 self.menubar.update_bookmarks(bookmarks)
 
-            case DBAction.SAVE:
-                if self.collection.save_path is None:
-                    app.logger.warning("Unable to save this collection as save path isn't provided. Requesting one now")
-                    self._db_event(DBAction.SAVE_AS, event_args)
-                else:
-                    self._task_manager.start_task(self._MLIB_TASK_SAVE, self.collection.save, {})
+            case DBAction.SAVE | DBAction.SAVE_AS:
+                save_location = self.collection.save_path
+                if save_location is None or db_action == DBAction.SAVE_AS:
+                    save_location = QFileDialog.getExistingDirectory(self, caption=db_action,
+                                                                     directory=str(appsettings.get_config_dir()))
+                if save_location == "":
+                    app.logger.debug("User canceled save action")
+                    return
 
-            case DBAction.SAVE_AS:
-                # First get save location
-                save_location = QFileDialog.getExistingDirectory(self, caption=db_action,
-                                                                 directory=str(appsettings.get_config_dir()))
-                # Then configure the collection
-                if save_location != "":
+                if self._path_validated(save_location):
                     app.logger.debug(f"DB will be saved to {save_location}")
                     self._task_manager.start_task(self._MLIB_TASK_SAVE, self.collection.save,
                                                   {"save_path": save_location})
-                else:
-                    app.logger.debug("User canceled save action")
 
-            case DBAction.OPEN_DB:
-                if event_args is None:
-                    # Prompt user for a db to open
-                    # Choose DB to open
-                    open_location = QFileDialog.getExistingDirectory(self, caption=db_action,
-                                                                     directory=str(appsettings.get_config_dir()))
-                else:
-                    open_location = event_args
-                # Then open the supplied location if its valid
-                if open_location != "":
-                    self._open_collection(open_location)
+            case DBAction.OPEN_DB | DBAction.OPEN_PRIVATE_DB:
+                self._open_collection(event_args, db_action, is_private=db_action == DBAction.OPEN_PRIVATE_DB)
 
             case DBAction.SHUT_DB:
                 self.shut_collection()
@@ -202,9 +190,8 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                 self._refresh_paths(self.collection.paths)
 
             case DBAction.REFRESH_SELECTED:
-                selected_paths = event_args
-                if len(selected_paths) > 0:
-                    self._refresh_paths(selected_paths)
+                if len(event_args) > 0:
+                    self._refresh_paths(event_args)
 
             case DBAction.REINDEX_COLLECTION:
                 self._task_manager.start_task(self._MLIB_TASK_REINDEX, self.collection.reindex, {})
@@ -324,17 +311,30 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         self._task_manager.start_task(self._MLIB_TASK_REFRESH_PATHS, self.collection.data,
                                       {"paths": paths, "refresh": True})
 
-    def _open_collection(self, db_path: str):
-        try:
-            self.collection = Collection.open_db(db_path)
-            self.show_collection(self.collection)
-            recents = appsettings.get_recently_opened_collections()
-            appsettings.push_to_list(db_path, recents, appsettings.get_recent_max_size())
-            appsettings.set_recently_opened_collections(recents)
-            self.menubar.update_recents(recents)
-
-        except (CollectionNotFoundError, CorruptedCollectionError) as e:
-            apputils.show_exception(self, e)
+    def _open_collection(self, db_path: str, db_action: DBAction, is_private: bool = False):
+        if db_path is None:
+            # Prompt user for a db to open
+            # Choose DB to open
+            db_path = QFileDialog.getExistingDirectory(self, caption=db_action,
+                                                       directory=str(appsettings.get_config_dir()))
+        if is_private:
+            app.logger.info("Setting log mode to show only critical logs as database is private")
+            self.menubar.set_application_log_level(logging.CRITICAL, session_only=True)
+        else:
+            self.menubar.set_application_log_level(appsettings.get_log_level())
+        # Then open the supplied location if its valid
+        if self._path_validated(db_path):
+            try:
+                self.collection = Collection.open_db(db_path)
+                self.collection.is_private = is_private
+                self.show_collection(self.collection)
+                if not is_private:
+                    recents = appsettings.get_recently_opened_collections()
+                    appsettings.push_to_list(db_path, recents, appsettings.get_recent_max_size())
+                    appsettings.set_recently_opened_collections(recents)
+                    self.menubar.update_recents(recents)
+            except (CollectionNotFoundError, CorruptedCollectionError) as e:
+                apputils.show_exception(self, e)
 
     def _paths_changed(self, _paths):
         app.logger.debug(f"Selection changed to {_paths}")
@@ -407,6 +407,12 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         exiftool_file_filter = f"ExifTool Supported Files (*.{' *.'.join(exifinfo.SUPPORTED_FORMATS.split(' '))})"
         return apputils.get_new_paths(parent=self, is_dir=is_dir, file_filter=exiftool_file_filter)
 
+    def _path_validated(self, path):
+        if path == "" or not Path(path).exists():
+            apputils.show_exception(self, ValueError(f"The path `{path}` is not a valid location"))
+            return False
+        return True
+
 
 if __name__ == '__main__':
     # Test if Exiftool is installed
@@ -442,7 +448,7 @@ if __name__ == '__main__':
         search.FindWidget(medialib_app),
         search.QueryWidget(medialib_app),
         info.FileInfoPlugin(medialib_app),
-        info.MapViewer(medialib_app)
+        # info.MapViewer(medialib_app)
     ]
     for medialib_app_startup_plugin in medialib_app_startup_plugins:
         if args.disableplugins and medialib_app_startup_plugin.name in args.disableplugins:

@@ -81,6 +81,7 @@ class Collection:
         self._tags = tags
         self._validate_collection(self)
         self._is_modified = False
+        self._is_private = False
 
     @property
     def type(self):
@@ -113,6 +114,14 @@ class Collection:
     @property
     def is_modified(self):
         return self._is_modified
+
+    @property
+    def is_private(self):
+        return self._is_private
+
+    @is_private.setter
+    def is_private(self, value):
+        self._is_private = value
 
     def clear_cache(self):
         app.logger.debug("Clearing Cache...")
@@ -179,13 +188,6 @@ class Collection:
                 except Exception as e:
                     raise CollectionQueryError(root_exception=e)
 
-        # for _path in query_paths:
-        #     disk_cache_file_name = str(self._cache_file_path(self._create_path_key(_path)))
-        #     try:
-        #         results, columns = indexer.query_index(self.save_path, query, disk_cache_file_name)
-        #         search_data.append(SearchResult(results=results, path=_path))
-        #     except Exception as e:
-        #         raise CollectionQueryError(root_exception=e)
         return SearchResults(data=search_data, columns=columns, query=query, searched_paths=query_paths)
 
     def data(self, paths: list, refresh=False):
