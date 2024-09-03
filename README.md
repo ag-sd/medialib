@@ -11,10 +11,10 @@ TODO
 
 ## TODO
 ### Currently work priority
-1. Private Collections: Zipped / Mark Private - Ctrl+Open will make DB private
-2. Support for really large collections
+1. Support for really large collections
+2. Group by any column (keep tableview and deprecate all other views)
 3. Export data
-4. Find in virtual table
+4. Find in virtual table(Not needed if #2 can be done)
 5. System diagram using Mermaid
 6. Data diagram using Mermaid
 7. Encrypted collections
@@ -60,6 +60,10 @@ TODO
 - [x] File System View
 - [x] Improve performance of views
 - [x] Support for reindexing data on demand
+- [x] Private Collections: 
+  - Click Ctrl on Collections menu will show a hidden option to open a private collection
+  - Private Collections cannot be bookmarked or saved to recents
+  - logging is limited to critical errors only when browsing private collections, but user can override this
 
 ### Cancelled Tasks
 1. ~~Rename Path to Directory~~
