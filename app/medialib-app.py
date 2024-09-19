@@ -7,12 +7,12 @@ from pathlib import Path
 
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices, QIcon
-from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, QLabel, QMessageBox, QFileDialog
+from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, QMessageBox, QFileDialog
 
 import app
 import apputils
 from app import appsettings
-from app.actions import AppMenuBar, MediaLibAction, DBAction, ViewAction
+from app.actions import AppMenuBar, MediaLibAction, DBAction
 from app.collection import exifinfo
 from app.collection.ds import Collection, CollectionNotFoundError, CorruptedCollectionError, \
     HasCollectionDisplaySupport, \
@@ -20,7 +20,8 @@ from app.collection.ds import Collection, CollectionNotFoundError, CorruptedColl
 from app.plugins import search, info
 from app.plugins.framework import SearchEventHandler, FileClickHandler, FileData
 from app.tasks import TaskManager, Task, TaskStatus
-from app.views import ViewType, ModelData, ModelManager
+from app.view import ViewManager
+from app.views import ModelData
 
 
 class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
@@ -37,25 +38,17 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         :param app_args: The arguments to start this app
             paths: The paths whose information should be shown
             collection: The collection to open
-            view: The view to start this app with
         """
         super().__init__()
         # Current View
         app.logger.debug("Setup current view widgets ...")
-        self.current_view_type = ViewType.TABLE if app_args.view is None else ViewType[app_args.view.upper()]
-        self.current_view = QWidget()
-        self.current_view_type_label = QLabel(self.current_view_type.name)
-        self.current_view_type_label.setStyleSheet(
-            f"margin-left :{self.current_view_type_label.fontMetrics().horizontalAdvance("  ")}px")
-        self.current_view_details = QLabel("")
-        self.current_view_details.setStyleSheet(
-            f"margin-left :{self.current_view_details.fontMetrics().horizontalAdvance("  ")}px")
+        self._view_manager = ViewManager(self)
+        self._view_manager.item_click.connect(self._file_click)
 
         self.view_layout = QVBoxLayout()
-        self.view_layout.setContentsMargins(2, 2, 2, 2)
-        self.view_layout.addWidget(self.current_view)
-        self.statusBar().addPermanentWidget(self.current_view_type_label)
-        self.statusBar().addPermanentWidget(self.current_view_details)
+        self.view_layout.setContentsMargins(0, 0, 0, 0)
+        self.view_layout.addWidget(self._view_manager)
+        self.statusBar().addPermanentWidget(self._view_manager.view_details_label)
 
         self._plugins = []
         self._task_manager = TaskManager(self)
@@ -65,7 +58,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         # Menu Bar
         app.logger.debug("Configure Menubar ...")
         self.menubar = AppMenuBar()
-        self.menubar.view_event.connect(self._view_event)
+        # self.menubar.view_event.connect(self._view_event)
         self.menubar.db_event.connect(self._db_event)
         self.menubar.medialib_event.connect(self._medialib_event)
         self.menubar.update_recents(appsettings.get_recently_opened_collections())
@@ -77,7 +70,6 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         dummy_widget = QWidget()
         dummy_widget.setLayout(self.view_layout)
         # Setup initial view
-        self._view_event(ViewAction.VIEW, self.current_view_type)
         self.setCentralWidget(dummy_widget)
         self.setWindowTitle(app.__APP_NAME__)
         self.setMinimumWidth(1200)
@@ -116,6 +108,8 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         app.logger.debug("Load collection and present data ...")
         # Update Menubar
         self.menubar.show_collection(self.collection)
+        # Update View
+        self._view_manager.show_collection(self.collection)
         # Update Plugins
         for plugin in self._plugins:
             if isinstance(plugin, HasCollectionDisplaySupport):
@@ -139,6 +133,8 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                     self._db_event(DBAction.SAVE, None)
             # Update Menubar
             self.menubar.shut_collection()
+            # Update View
+            self._view_manager.shut_collection()
             # Update Plugins
             for plugin in self._plugins:
                 if isinstance(plugin, HasCollectionDisplaySupport):
@@ -248,7 +244,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                     for path, result in task.result.items():
                         data = ModelData(data=result, path=path)
                         model_data.append(data)
-                    self._display_model_data(model_data, task.result.keys(), self.collection.tags)
+                    self._display_model_data(model_data, self.collection.tags)
                     self.statusBar().showMessage(f"Data for {task.result.keys()} paths fetched "
                                                  f"in {task.time_taken} seconds.", self._MLIB_UI_STATUS_MESSAGE_TIMEOUT)
                 except CollectionQueryError as d:
@@ -262,7 +258,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                     for search_result in task.result.data:
                         if len(search_result.results) > 0:
                             model_data.append(ModelData(data=search_result.results, path=search_result.path))
-                    self._display_model_data(model_data, task.result.searched_paths, task.result.columns)
+                    self._display_model_data(model_data, task.result.columns)
                     self.statusBar().showMessage(f"Search completed in {task.time_taken} seconds.",
                                                  self._MLIB_UI_STATUS_MESSAGE_TIMEOUT)
                 except CollectionQueryError as d:
@@ -301,9 +297,8 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                     "query": search_scope, "query_paths": self.menubar.get_selected_collection_paths()
                 })
             case SearchEventHandler.SearchType.VISUAL:
-                if isinstance(self.current_view, ModelManager):
-                    app.logger.debug(f"Finding text in visual interface {search_scope}")
-                    self.current_view.find_text(search_scope)
+                app.logger.debug(f"Finding text in visual interface {search_scope}")
+                self._view_manager.find_text(search_scope)
 
     def _refresh_paths(self, paths):
         app.logger.debug(f"Refreshing {len(paths)} path(s)")
@@ -342,56 +337,40 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
             self._task_manager.start_task(self._MLIB_TASK_PATH_CHANGE, self.collection.data, {"paths": _paths})
         else:
             app.logger.debug("Empty path change request will not be submitted to collection")
-            self._display_model_data([], _paths, self.collection.tags)
 
     def _view_event(self, action, event_args):
-        match action:
-            case ViewAction.VIEW:
-                view = event_args
-                app.logger.debug(f"View changed {view}")
-                new_view = view.view(self)
-                self.view_layout.replaceWidget(self.current_view, new_view)
-                del self.current_view
-                self.current_view = new_view
-                self.current_view_type = view
-                self.current_view_type_label.setText(view.name)
-                # If a path is being viewed, reload it
-                if self.current_view_details.property("model_data") is not None:
-                    self._display_model_data(self.current_view_details.property("model_data"),
-                                             self.current_view_details.property("paths"),
-                                             self.current_view_details.property("fields"))
+        # TODO: Deprecate this and transfer this logic to the view manager
+        pass
+        # match action:
+        #     case ViewAction.VIEW:
+        #         view = event_args
+        #         app.logger.debug(f"View changed {view}")
+        #         new_view = view.view(self)
+        #         self.view_layout.replaceWidget(self.current_view, new_view)
+        #         del self.current_view
+        #         self.current_view = new_view
+        #         self.current_view_type = view
+        #         self.current_view_type_label.setText(view.name)
+        #         # If a path is being viewed, reload it
+        #         if self.current_view_details.property("model_data") is not None:
+        #             self._display_model_data(self.current_view_details.property("model_data"),
+        #                                      self.current_view_details.property("paths"),
+        #                                      self.current_view_details.property("fields"))
+        #
+        #     case ViewAction.FIELD:
+        #         fields = event_args
+        #         app.logger.debug(f"Show fields changed")
+        #         if self.current_view_details.property("model_data") is not None:
+        #             self._display_model_data(self.current_view_details.property("model_data"),
+        #                                      self.current_view_details.property("paths"),
+        #                                      fields)
 
-            case ViewAction.FIELD:
-                fields = event_args
-                app.logger.debug(f"Show fields changed")
-                if self.current_view_details.property("model_data") is not None:
-                    self._display_model_data(self.current_view_details.property("model_data"),
-                                             self.current_view_details.property("paths"),
-                                             fields)
-
-    def _display_model_data(self, model_data: list, paths: list, fields: set):
-        self.current_view.set_model(model_data, fields)
-        self.current_view.file_click.connect(self._file_click)
-        # Adjust view details
-        if len(model_data) > 0:
-            view_details = f"{len(paths)} path{'s' if len(paths) > 1 else ''} displayed"
-            row_count = f". {self.current_view.row_count} items" if self.current_view.row_count >= 0 else ""
-            view_details = f"{view_details}{row_count}"
-            self.current_view_details.setText(view_details)
-            self.current_view_details.setProperty("model_data", model_data)
-            self.current_view_details.setProperty("paths", paths)
-            self.current_view_details.setProperty("fields", fields)
-            self.current_view_details.setToolTip("\n".join(paths))
-            app.logger.debug(view_details)
-        else:
-            # This means the model data was unloaded
-            self.current_view_details.setText("")
-            self.current_view_details.setProperty("model_data", None)
-            self.current_view_details.setProperty("paths", None)
-            self.current_view_details.setProperty("fields", None)
-            self.current_view_details.setToolTip("")
+    def _display_model_data(self, model_data: list, fields: set):
+        self._view_manager.show_data(model_data, list(fields))
 
     def _file_click(self, file_data: FileData):
+        return
+        # TODO: THis could be a random item. CHeck if its file data
         # Query the collection for this file
         file, root_path = self.collection.search(str(Path(file_data.directory) / Path(file_data.file_name)))
         if file is not None:
@@ -425,11 +404,9 @@ if __name__ == '__main__':
     group.add_argument("--paths", metavar="p", type=str, nargs="*", help="Path(s) to read the exif data from")
     group.add_argument("--collection", metavar="db", type=str, help="The full path of the collection to open")
 
-    parser.add_argument("--view", metavar="v", type=str, default='table', help="Select the view to load")
     parser.add_argument("--disableplugins", metavar="d", type=str, nargs="*", help="Disables the plugin")
 
     args = parser.parse_args()
-    app.logger.debug(f"Input args supplied           view: {args.view}")
     app.logger.debug(f"Input args supplied          paths: {args.paths}")
     app.logger.debug(f"Input args supplied     collection: {args.collection}")
     app.logger.debug(f"Input args supplied disableplugins: {args.disableplugins}")

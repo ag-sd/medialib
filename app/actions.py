@@ -3,7 +3,7 @@ from enum import StrEnum
 from functools import partial
 
 from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtGui import QIcon, QActionGroup
+from PyQt6.QtGui import QIcon, QActionGroup, QContextMenuEvent
 from PyQt6.QtWidgets import QMenuBar, QMenu, QCheckBox
 
 import app
@@ -69,31 +69,55 @@ class DBAction(StrEnum):
 class ViewAction(StrEnum):
     VIEW = "View"
     FIELD = "Field"
+    OPEN = "Open File"
+    EXPLORE = "Open in Explorer..."
+    FS_VIEW = "File System View"
+    EXPORT = "Export data..."
 
 
-class ViewMenu(QMenu, HasCollectionDisplaySupport):
+class ViewContextMenu(QMenu, HasCollectionDisplaySupport):
     view_event = pyqtSignal(StrEnum, "PyQt_PyObject")
 
     _PROP_FIELD_ID = "field-ids"
 
     def show_collection(self, collection: Collection):
         # Now Build the new menus
-        self._update_all_fields_menu(collection)
         self._update_presets_menu(collection)
         self._view_menu_presets.setEnabled(True)
-        self._view_menu_all_fields.setEnabled(True)
+        self._view_menu_field_selection.setEnabled(True)
 
     def shut_collection(self):
         self._view_menu_presets.setEnabled(False)
-        self._view_menu_all_fields.setEnabled(False)
+        self._view_menu_field_selection.setEnabled(False)
         self._hidden_tags = set()
         self._all_tags = []
         self._tag_checkboxes = {}
 
-    def update_available_views(self, available_views: list):
-        for action in self.actions():
-            if action.property("view-action") is not None:
-                action.setEnabled(action.text() in available_views)
+    def show_menu(self, cm_args: QContextMenuEvent, file_ops: bool, file_exists: bool):
+        self._open.setVisible(file_ops)
+        self._open.setEnabled(file_exists)
+        self._explore.setVisible(file_ops)
+        self._explore.setEnabled(file_exists)
+        self._fs_view.setVisible(file_ops)
+        self.exec(cm_args.globalPos())
+
+    def show_field_selection(self, fields: list):
+        self._view_menu_field_selection.clear()
+        groups = apputils.create_tag_groups(fields)
+        if props.DB_TAG_GROUP_DEFAULT in groups:
+            for key in groups[props.DB_TAG_GROUP_DEFAULT]:
+                cb = self._create_checkbox(key, self._view_menu_field_selection, key)
+                self._add_menu_item(self._view_menu_field_selection, cb)
+            self._view_menu_field_selection.addSeparator()
+            del groups[props.DB_TAG_GROUP_DEFAULT]
+
+        for group, items in sorted(groups.items()):
+            group_menu = QMenu(group, parent=self._view_menu_field_selection)
+            for key in sorted(items):
+                field_name = f"{group}:{key}"
+                cb = self._create_checkbox(key, self._view_menu_field_selection, field_name)
+                self._add_menu_item(group_menu, cb)
+            self._view_menu_field_selection.addMenu(group_menu)
 
     def __init__(self, parent):
         super().__init__("&View", parent=parent)
@@ -101,54 +125,46 @@ class ViewMenu(QMenu, HasCollectionDisplaySupport):
         self._hidden_tags = set()
         self._all_tags = []
         self._tag_checkboxes = {}
-        self._view_menu_all_fields = QMenu("All Fields", self)
+        self._view_menu_field_selection = QMenu("Columns", self)
         self._view_menu_presets = QMenu("Preset Views", self)
+        self._view_menu_groups = QMenu("Group By", self)
         self._presets_group = QActionGroup(self._view_menu_presets)
         self._presets_group.setExclusive(True)
+        self._open = apputils.create_action(self, ViewAction.OPEN, icon="document-save",
+                                            tooltip="Open in default application",
+                                            func=self._raise_view_event, enabled=False)
+        self._explore = apputils.create_action(self, ViewAction.EXPLORE, icon="document-save-as",
+                                               tooltip="Open in shell explorer",
+                                               func=self._raise_view_event, enabled=False)
+        self._fs_view = apputils.create_action(self, ViewAction.FS_VIEW, icon="document-close",
+                                               tooltip="View results in file hierarchy",
+                                               func=self._raise_view_event, enabled=False)
+        self._export = apputils.create_action(self, ViewAction.EXPORT, icon="view-refresh",
+                                              tooltip="Export data to file",
+                                              func=self._raise_view_event, enabled=True)
+
         self._init_default_menu()
 
     def _init_default_menu(self):
-        view_group = QActionGroup(self)
-        view_group.setExclusive(True)
-        for i, v in enumerate(ViewType):
-            view_action = apputils.create_action(self, v.name, func=self._raise_view_event, icon=v.icon,
-                                                 shortcut=f"Alt+Shift+{i + 1}", tooltip=v.description, checked=False)
-            view_action.setProperty("view-action", True)
-            self.addAction(view_action)
-            view_group.addAction(view_action)
-
+        self.addAction(self._open)
+        self.addAction(self._explore)
+        self.addAction(self._fs_view)
         self.addSeparator()
-
-        self.addMenu(self._view_menu_all_fields)
+        self.addMenu(self._view_menu_field_selection)
+        self.addMenu(self._view_menu_groups)
         self.addMenu(self._view_menu_presets)
+        self.addSeparator()
+        self.addAction(self._export)
 
-    def _create_checkbox(self, text, parent, field_name):
+    def _create_checkbox(self, text, parent, field_name, checked=False):
         cb = QCheckBox(text, parent)
         cb.setToolTip(f"Show/Hide {text} in the view")
         cb.setStyleSheet(self._combo_stylesheet)
         cb.clicked.connect(partial(self._checkbox_click_event, cb))
         cb.setProperty(self._PROP_FIELD_ID, field_name)
-        cb.setChecked(True)
+        cb.setChecked(checked)
         self._tag_checkboxes[field_name] = cb
         return cb
-
-    def _update_all_fields_menu(self, db: Collection):
-        self._view_menu_all_fields.clear()
-        groups = apputils.create_tag_groups(db.tags)
-        if props.DB_TAG_GROUP_DEFAULT in groups:
-            for key in groups[props.DB_TAG_GROUP_DEFAULT]:
-                cb = self._create_checkbox(key, self._view_menu_all_fields, key)
-                self._add_menu_item(self._view_menu_all_fields, cb)
-            self._view_menu_all_fields.addSeparator()
-            del groups[props.DB_TAG_GROUP_DEFAULT]
-
-        for group, items in sorted(groups.items()):
-            group_menu = QMenu(group, parent=self._view_menu_all_fields)
-            for key in sorted(items):
-                field_name = f"{group}:{key}"
-                cb = self._create_checkbox(key, self._view_menu_all_fields, field_name)
-                self._add_menu_item(group_menu, cb)
-            self._view_menu_all_fields.addMenu(group_menu)
 
     def _update_presets_menu(self, db: Collection):
         self._view_menu_presets.clear()
@@ -244,9 +260,6 @@ class CollectionMenu(QMenu, HasCollectionDisplaySupport):
         self._shut_db.setEnabled(False)
         _clear_menu(self._paths_menu)
         self._paths_menu.setEnabled(False)
-
-        # Raise Cleanup Events
-        self.collection_event.emit(DBAction.PATH_CHANGE, [])
 
     @property
     def selected_paths(self) -> list:
@@ -460,8 +473,6 @@ class AppMenuBar(QMenuBar, HasCollectionDisplaySupport):
         super().__init__()
         self._db_menu = CollectionMenu(self)
         self._db_menu.collection_event.connect(self.db_event)
-        self._view_menu = ViewMenu(self)
-        self._view_menu.view_event.connect(self.view_event)
         self._help_menu = HelpMenu(self)
         self._help_menu.help_event.connect(self.medialib_event)
         self._file_menu = FileMenu(self)
@@ -470,7 +481,6 @@ class AppMenuBar(QMenuBar, HasCollectionDisplaySupport):
 
         self.addMenu(self._file_menu)
         self.addMenu(self._db_menu)
-        self.addMenu(self._view_menu)
         self.addMenu(self._window_menu)
         self.addMenu(self._help_menu)
 
@@ -481,18 +491,13 @@ class AppMenuBar(QMenuBar, HasCollectionDisplaySupport):
         self._db_menu.update_bookmarks(bookmarks)
 
     def show_collection(self, collection: Collection):
-        self._view_menu.show_collection(collection)
         self._db_menu.show_collection(collection)
 
     def shut_collection(self):
-        self._view_menu.shut_collection()
         self._db_menu.shut_collection()
 
     def get_selected_collection_paths(self):
         return self._db_menu.selected_paths
-
-    def update_available_views(self, available_views: list):
-        self._view_menu.update_available_views(available_views)
 
     def set_application_log_level(self, log_level, session_only: bool = True):
         self._help_menu.set_application_log_level(log_level, not session_only)

@@ -22,6 +22,7 @@ class FileData:
     file_size: str
     mime_type: str
     root_path: str
+    _sourcefile: ... = None
 
     def __post_init__(self):
         if not isinstance(self.file_name, str):
@@ -32,6 +33,15 @@ class FileData:
             raise ValueError("mime_type must be set and of type string")
         if not isinstance(self.root_path, str):
             raise ValueError("root_path must be set and of type string")
+        self._sourcefile = Path(self.directory) / Path(self.file_name)
+
+    @property
+    def sourcefile_available(self) -> bool:
+        return self._sourcefile.exists()
+
+    @property
+    def sourcefile(self) -> Path:
+        return self._sourcefile
 
     @staticmethod
     def from_dict(data: dict, root_path: str = None):
@@ -58,6 +68,8 @@ class FileData:
                 source_path = Path(data[props.FIELD_SOURCE_FILE])
                 file_name = source_path.name
                 directory = str(source_path.parent)
+        if props.FIELD_COLLECTION_PATH in data and root_path is None:
+            root_path = data[props.FIELD_COLLECTION_PATH]
         if file_name is not None and directory is not None:
             mime_type = apputils.get_mime_type_icon_name(file_name)
             return FileData(file_name=file_name,

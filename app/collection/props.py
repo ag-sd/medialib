@@ -33,6 +33,8 @@ FIELD_SOURCE_FILE = "SourceFile"
 FIELD_FILE_NAME = "System:FileName"
 FIELD_FILE_SIZE = "System:FileSize"
 FIELD_DIRECTORY = "System:Directory"
+FIELD_COLLECTION_PATH = "ViewMetadata:Path"
+FIELD_COLLECTION_FILEDATA = "ViewMetadata:FileData"
 
 _FIELDS_BASIC = [
     FIELD_SOURCE_FILE,
