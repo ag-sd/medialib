@@ -73,7 +73,7 @@ class TestViewMenu(unittest.TestCase):
             # Available fields count will be different
             self.assertEqual(len(list(self._view_menu._view_menu_all_fields.actions())), 8)
             # Presets are available
-            self.assertEqual(len(list(self._view_menu._view_menu_presets.actions())), 2)
+            self.assertEqual(len(list(self._view_menu._vm_presets.actions())), 2)
 
     def test_show_collection_audio_files(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -85,7 +85,7 @@ class TestViewMenu(unittest.TestCase):
             # Available fields count will be different
             self.assertEqual(len(list(self._view_menu._view_menu_all_fields.actions())), 11)
             # Presets are available
-            self.assertEqual(len(list(self._view_menu._view_menu_presets.actions())), 2)
+            self.assertEqual(len(list(self._view_menu._vm_presets.actions())), 2)
 
     def test_shut_collection(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -97,7 +97,7 @@ class TestViewMenu(unittest.TestCase):
             self._view_menu.shut_collection()
             # Fields is disabled
             self.assertFalse(self._view_menu._view_menu_all_fields.isEnabled())
-            self.assertFalse(self._view_menu._view_menu_presets.isEnabled())
+            self.assertFalse(self._view_menu._vm_presets.isEnabled())
 
     def test_update_views_disable(self):
         self._view_menu.update_available_views([])
@@ -457,7 +457,7 @@ class TestAppMenuBar(unittest.TestCase):
 
             self.assertEqual(len(list(self._menu._view_menu._view_menu_all_fields.actions())), 13)
             # Presets are available
-            self.assertEqual(len(list(self._menu._view_menu._view_menu_presets.actions())), 2)
+            self.assertEqual(len(list(self._menu._view_menu._vm_presets.actions())), 2)
 
     def test_shut_collection(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -483,7 +483,7 @@ class TestAppMenuBar(unittest.TestCase):
             self.assertEqual(len(self._menu._db_menu._paths_menu.actions()), 0)
 
             self.assertFalse(self._menu._view_menu._view_menu_all_fields.isEnabled())
-            self.assertFalse(self._menu._view_menu._view_menu_presets.isEnabled())
+            self.assertFalse(self._menu._view_menu._vm_presets.isEnabled())
 
     def test_get_selected_paths(self):
         with tempfile.TemporaryDirectory() as db_path:

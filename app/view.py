@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 from PyQt6.QtCore import QRegularExpression, QSortFilterProxyModel, pyqtSignal, QAbstractTableModel, \
     QModelIndex, Qt, QVariant, QPersistentModelIndex, QAbstractItemModel, QObject
-from PyQt6.QtGui import QStandardItem, QIcon, QBrush, QColor
+from PyQt6.QtGui import QStandardItem, QIcon, QBrush, QColor, QPalette
 from PyQt6.QtWidgets import QTableView, QAbstractItemView, QWidget, QVBoxLayout, QTreeView, QLabel
 
 import app
@@ -64,7 +64,7 @@ class ViewItem:
 
 
 class ViewManager(QWidget, HasCollectionDisplaySupport):
-    item_click = pyqtSignal(dict, str)
+    item_click = pyqtSignal(dict, "PyQt_PyObject", str)
 
     def __init__(self, parent):
         super().__init__(parent=parent)
@@ -106,9 +106,8 @@ class ViewManager(QWidget, HasCollectionDisplaySupport):
                           sel[props.FIELD_COLLECTION_FILEDATA].sourcefile_available)
         self._context_menu.show_menu(a0, self._file_ops_available, file_available)
 
-    def _item_clicked(self, item_data: dict):
-        _path = item_data[props.FIELD_COLLECTION_PATH]
-        self.item_click.emit(item_data, _path)
+    def _item_clicked(self, item_data: dict, file_data: FileData, collection_path: str):
+        self.item_click.emit(item_data, file_data, collection_path)
 
     def show_data(self, model_data: list, fields: list | None, group_by: list | None = None):
         # Preprocess the data and insert the path into every record
@@ -117,15 +116,18 @@ class ViewManager(QWidget, HasCollectionDisplaySupport):
         app.logger.debug(f"Preprocessing data for view complete. File ops available = {self._file_ops_available}")
         self._fields = fields
         self._group_by = group_by
+        self._context_menu.set_available_fields(fields)
         # Create an appropriate view for the data and update the view
         self._load_view()
 
     def _context_menu_requested_event(self, action, event_args):
         app.logger.debug(f"Context Menu event - {action} -- {event_args}")
         match action:
-            case ViewAction.FIELD:
+            case ViewAction.COLUMN:
                 self._fields = event_args
-                app.logger.debug(f"Show fields changed")
+                self._load_view()
+            case ViewAction.GROUP_BY:
+                self._group_by = event_args
                 self._load_view()
 
     def _load_view(self):
@@ -181,7 +183,7 @@ class ViewManager(QWidget, HasCollectionDisplaySupport):
 
 
 class View(QObject):
-    item_click = pyqtSignal(dict, str)
+    item_click = pyqtSignal(dict, "PyQt_PyObject", str)
 
     @abstractmethod
     def show_data(self, view_items: list, fields: list | None, group_by: list | None):
@@ -208,8 +210,10 @@ class View(QObject):
     def _clicked(self, index):
         selected = self._get_selection_items([index])
         for sel in selected:
-            _path = sel[props.FIELD_COLLECTION_PATH]
-            self.item_click.emit(selected[0], _path)
+            file_data = None
+            if props.FIELD_COLLECTION_FILEDATA in sel:
+                file_data = sel[props.FIELD_COLLECTION_FILEDATA]
+            self.item_click.emit(sel, file_data, sel[props.FIELD_COLLECTION_PATH])
 
     def _get_selection_items(self, proxy_model_indices: list):
         selection = []
@@ -222,10 +226,10 @@ class View(QObject):
 
 
 class TableView(QTableView, View):
-    item_click = pyqtSignal(dict, str)
+    item_click = pyqtSignal(dict, "PyQt_PyObject", str)
 
     def show_data(self, view_items: list, fields: list, group_by: list):
-        if group_by is not None:
+        if group_by is not None and len(group_by) > 0:
             raise ValueError("Table view does not support groups")
         p_model = self.TableModel(view_items, fields)
         self.setModel(self._create_proxy_model(self, p_model))
@@ -368,7 +372,7 @@ class ColumnView(TableView):
 
 
 class SpanningTreeview(QTreeView, View):
-    item_click = pyqtSignal(dict, str)
+    item_click = pyqtSignal(dict, "PyQt_PyObject", str)
 
     def show_data(self, view_items: list, fields: list | None, group_by: list):
         p_model = self.TreeModel(view_items, fields, group_by)
@@ -403,7 +407,8 @@ class SpanningTreeview(QTreeView, View):
 
     class TreeModel(QAbstractItemModel):
         _NODE_FOLDER = QIcon.fromTheme("folder")
-        _GROUP_BG = QBrush(QColor(121, 186, 212, 125))
+        _GROUP_BG = QPalette().color(QPalette.ColorGroup.Normal, QPalette.ColorRole.Window)
+        _GROUP_BG.setAlpha(18)
         _UNKNOWN = "N/A"
 
         def __init__(self, model_data: list, fields: list, group_by: list):

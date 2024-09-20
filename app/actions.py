@@ -68,7 +68,8 @@ class DBAction(StrEnum):
 
 class ViewAction(StrEnum):
     VIEW = "View"
-    FIELD = "Field"
+    COLUMN = "Column"
+    GROUP_BY = "Group By"
     OPEN = "Open File"
     EXPLORE = "Open in Explorer..."
     FS_VIEW = "File System View"
@@ -79,18 +80,28 @@ class ViewContextMenu(QMenu, HasCollectionDisplaySupport):
     view_event = pyqtSignal(StrEnum, "PyQt_PyObject")
 
     _PROP_FIELD_ID = "field-ids"
+    _PROP_SOURCE = "source"
 
     def show_collection(self, collection: Collection):
         # Now Build the new menus
         self._update_presets_menu(collection)
-        self._view_menu_presets.setEnabled(True)
-        self._view_menu_field_selection.setEnabled(True)
+        self._show_field_selection(collection.tags, self._vm_columns, True, ViewAction.COLUMN)
+        self._show_field_selection(collection.tags, self._vm_groupby, False, ViewAction.GROUP_BY)
+        self._vm_presets.setEnabled(True)
+        self._vm_columns.setEnabled(True)
+        self._vm_groupby.setEnabled(True)
+        self._hidden_tags = set()
+        self._all_tags = collection.tags
+        self._group_by = []
+        self._tag_checkboxes = {}
 
     def shut_collection(self):
-        self._view_menu_presets.setEnabled(False)
-        self._view_menu_field_selection.setEnabled(False)
+        self._vm_presets.setEnabled(False)
+        self._vm_columns.setEnabled(False)
+        self._vm_groupby.setEnabled(False)
         self._hidden_tags = set()
         self._all_tags = []
+        self._group_by = []
         self._tag_checkboxes = {}
 
     def show_menu(self, cm_args: QContextMenuEvent, file_ops: bool, file_exists: bool):
@@ -99,47 +110,55 @@ class ViewContextMenu(QMenu, HasCollectionDisplaySupport):
         self._explore.setVisible(file_ops)
         self._explore.setEnabled(file_exists)
         self._fs_view.setVisible(file_ops)
+        self._fs_view.setEnabled(file_ops)
         self.exec(cm_args.globalPos())
 
-    def show_field_selection(self, fields: list):
-        self._view_menu_field_selection.clear()
+    def set_available_fields(self, available_fields: list):
+        self._all_tags = available_fields
+
+    def _show_field_selection(self, fields: list, reference_menu: QMenu, items_enabled: bool, event_source: ViewAction):
+        reference_menu.clear()
         groups = apputils.create_tag_groups(fields)
         if props.DB_TAG_GROUP_DEFAULT in groups:
             for key in groups[props.DB_TAG_GROUP_DEFAULT]:
-                cb = self._create_checkbox(key, self._view_menu_field_selection, key)
-                self._add_menu_item(self._view_menu_field_selection, cb)
-            self._view_menu_field_selection.addSeparator()
+                cb = self._create_checkbox(key, reference_menu, key, event_source, checked=items_enabled)
+                self._add_menu_item(reference_menu, cb)
+            reference_menu.addSeparator()
             del groups[props.DB_TAG_GROUP_DEFAULT]
 
         for group, items in sorted(groups.items()):
-            group_menu = QMenu(group, parent=self._view_menu_field_selection)
+            group_menu = QMenu(group, parent=reference_menu)
             for key in sorted(items):
                 field_name = f"{group}:{key}"
-                cb = self._create_checkbox(key, self._view_menu_field_selection, field_name)
+                cb = self._create_checkbox(key, reference_menu, field_name, event_source, checked=items_enabled)
                 self._add_menu_item(group_menu, cb)
-            self._view_menu_field_selection.addMenu(group_menu)
+            reference_menu.addMenu(group_menu)
 
     def __init__(self, parent):
         super().__init__("&View", parent=parent)
         self._combo_stylesheet = f"padding: {self.fontMetrics().horizontalAdvance('  ')}px; text-align:left;"
         self._hidden_tags = set()
         self._all_tags = []
+        self._group_by = []
         self._tag_checkboxes = {}
-        self._view_menu_field_selection = QMenu("Columns", self)
-        self._view_menu_presets = QMenu("Preset Views", self)
-        self._view_menu_groups = QMenu("Group By", self)
-        self._presets_group = QActionGroup(self._view_menu_presets)
+        self._vm_columns = QMenu("Columns", self)
+        self._vm_columns.setIcon(QIcon.fromTheme("view-file-columns"))
+        self._vm_presets = QMenu("Preset Views", self)
+        self._vm_presets.setIcon(QIcon.fromTheme("document-save"))
+        self._vm_groupby = QMenu("Group By", self)
+        self._vm_groupby.setIcon(QIcon.fromTheme("view-list-tree"))
+        self._presets_group = QActionGroup(self._vm_presets)
         self._presets_group.setExclusive(True)
-        self._open = apputils.create_action(self, ViewAction.OPEN, icon="document-save",
+        self._open = apputils.create_action(self, ViewAction.OPEN, icon="document-open",
                                             tooltip="Open in default application",
                                             func=self._raise_view_event, enabled=False)
-        self._explore = apputils.create_action(self, ViewAction.EXPLORE, icon="document-save-as",
+        self._explore = apputils.create_action(self, ViewAction.EXPLORE, icon="system-file-manager",
                                                tooltip="Open in shell explorer",
                                                func=self._raise_view_event, enabled=False)
-        self._fs_view = apputils.create_action(self, ViewAction.FS_VIEW, icon="document-close",
+        self._fs_view = apputils.create_action(self, ViewAction.FS_VIEW, icon="view-list-tree",
                                                tooltip="View results in file hierarchy",
                                                func=self._raise_view_event, enabled=False)
-        self._export = apputils.create_action(self, ViewAction.EXPORT, icon="view-refresh",
+        self._export = apputils.create_action(self, ViewAction.EXPORT, icon="document-export",
                                               tooltip="Export data to file",
                                               func=self._raise_view_event, enabled=True)
 
@@ -150,24 +169,25 @@ class ViewContextMenu(QMenu, HasCollectionDisplaySupport):
         self.addAction(self._explore)
         self.addAction(self._fs_view)
         self.addSeparator()
-        self.addMenu(self._view_menu_field_selection)
-        self.addMenu(self._view_menu_groups)
-        self.addMenu(self._view_menu_presets)
+        self.addMenu(self._vm_columns)
+        self.addMenu(self._vm_groupby)
+        self.addMenu(self._vm_presets)
         self.addSeparator()
         self.addAction(self._export)
 
-    def _create_checkbox(self, text, parent, field_name, checked=False):
+    def _create_checkbox(self, text, parent, field_name, source, checked=False):
         cb = QCheckBox(text, parent)
         cb.setToolTip(f"Show/Hide {text} in the view")
         cb.setStyleSheet(self._combo_stylesheet)
         cb.clicked.connect(partial(self._checkbox_click_event, cb))
         cb.setProperty(self._PROP_FIELD_ID, field_name)
+        cb.setProperty(self._PROP_SOURCE, source)
         cb.setChecked(checked)
         self._tag_checkboxes[field_name] = cb
         return cb
 
     def _update_presets_menu(self, db: Collection):
-        self._view_menu_presets.clear()
+        self._vm_presets.clear()
         self._create_preset("Basic Fields", "Show basic file information", props.get_basic_fields(), db)
         self._create_preset("Image Fields", "Show image file information", props.get_image_fields(), db)
         self._create_preset("All Fields", "Show all available file information", set(self._all_tags), db)
@@ -176,19 +196,19 @@ class ViewContextMenu(QMenu, HasCollectionDisplaySupport):
         # Remove fields from the presets that are not in this collection
         filtered_fields = [f for f in fields if f in collection.tags]
         if len(filtered_fields) > 0:
-            action = apputils.create_action(self._view_menu_presets, name, self._preset_clicked_event, tooltip=tooltip,
+            action = apputils.create_action(self._vm_presets, name, self._preset_clicked_event, tooltip=tooltip,
                                             checked=False)
             action.setProperty(self._PROP_FIELD_ID, filtered_fields)
-            self._view_menu_presets.addAction(action)
+            self._vm_presets.addAction(action)
             self._presets_group.addAction(action)
         else:
             app.logger.debug(f"{name} will not be shown as none of the fields are in this collection")
 
     def _raise_view_event(self, event):
-        self.view_event.emit(ViewAction.VIEW, ViewType[event])
+        self.view_event.emit(event, None)
 
     def _preset_clicked_event(self, preset_name):
-        menu_item = _find_action(preset_name, self._view_menu_presets.actions())
+        menu_item = _find_action(preset_name, self._vm_presets.actions())
         fields = menu_item.property(self._PROP_FIELD_ID)
         if fields is not None:
             self._hidden_tags.clear()
@@ -204,16 +224,25 @@ class ViewContextMenu(QMenu, HasCollectionDisplaySupport):
 
     def _checkbox_click_event(self, field):
         field_id = field.property(self._PROP_FIELD_ID)
-        if field.isChecked():
-            logging.debug(f"{field_id} was checked by user.")
-            self._hidden_tags.remove(field_id)
-        else:
-            logging.debug(f"{field_id} was un-checked by user.")
-            self._hidden_tags.add(field_id)
-        self._raise_field_change_event()
+        source = field.property(self._PROP_SOURCE)
 
-    def _raise_field_change_event(self):
-        self.view_event.emit(ViewAction.FIELD, [f for f in self._all_tags if f not in self._hidden_tags])
+        match source:
+            case ViewAction.GROUP_BY:
+                if field.isChecked():
+                    logging.debug(f"{field_id} was added to group-by by user.")
+                    self._group_by.append(field_id)
+                else:
+                    logging.debug(f"{field_id} was removed from group-by by user.")
+                    self._group_by.remove(field_id)
+                self.view_event.emit(ViewAction.GROUP_BY, self._group_by)
+            case ViewAction.COLUMN:
+                if field.isChecked():
+                    logging.debug(f"{field_id} was checked by user.")
+                    self._hidden_tags.remove(field_id)
+                else:
+                    logging.debug(f"{field_id} was un-checked by user.")
+                    self._hidden_tags.add(field_id)
+                self.view_event.emit(ViewAction.COLUMN, [f for f in self._all_tags if f not in self._hidden_tags])
 
     @staticmethod
     def _add_menu_item(parent: QMenu, widget):

@@ -2,13 +2,11 @@ import sys
 from dataclasses import dataclass
 from typing import override
 
-from PyQt6.QtCore import QAbstractItemModel, Qt, QModelIndex, QSortFilterProxyModel, QRegularExpression, QVariant, \
-    QPersistentModelIndex
-from PyQt6.QtGui import QIcon, QStandardItem
-from PyQt6.QtWidgets import QApplication, QTreeView, QHeaderView, QLineEdit, QWidget, QVBoxLayout
+from PyQt6.QtCore import QAbstractItemModel, Qt, QModelIndex, QSortFilterProxyModel, QRegularExpression, QVariant
+from PyQt6.QtGui import QIcon
+from PyQt6.QtWidgets import QApplication, QTreeView, QLineEdit, QWidget, QVBoxLayout
 
 from app.collection.ds import Collection
-from app.plugins.framework import FileData
 from app.views import ModelData, get_mime_type_icon
 
 d = {'Users': {'files': [{'filename': 'file.txt', 'size': 1234, 'modified': 'blah'},
@@ -459,87 +457,82 @@ class TableModelV2(QAbstractItemModel):
         self._group_key = group_key
         self._root_node = self._build_grouping_model(self._flatten(model_data), self._group_key)
 
-    @override
-    def index(self, row, column, parent=...):
-        if not self.hasIndex(row, column, parent):
-            return QModelIndex()
+    # @override
+    # def index(self, row, column, parent=...):
+    #     if not self.hasIndex(row, column, parent):
+    #         return QModelIndex()
+    #
+    #     if not parent.isValid():
+    #         parent_node = self._root_node
+    #     else:
+    #         parent_node = parent.internalPointer()
+    #
+    #     if row < len(parent_node.children):
+    #         item = parent_node.children[row]
+    #         key = self._exif_cols[column]
+    #         # TODO: Improve this logic
+    #         if isinstance(item, TableNode) and column > 0:
+    #             return QModelIndex()
+    #         elif isinstance(item, TableNode) and column == 0:
+    #             return self.createIndex(row, column, item)
+    #         elif isinstance(item, TableLeaf) and key in item.data:
+    #             value = item.data[key]
+    #             return self.createIndex(row, column, value)
+    #         else:
+    #             return QModelIndex()
+    #     else:
+    #         return QModelIndex()
 
-        if not parent.isValid():
-            parent_node = self._root_node
-        else:
-            parent_node = parent.internalPointer()
+    # @override
+    # def data(self, index, role=...):
+    #     if not index.isValid():
+    #         return QVariant()
+    #     # p_index = QPersistentModelIndex(index)
+    #     # item = self._QStandardItem_cache.get(p_index)
+    #     # if item is not None:
+    #     #     return item
+    #     item = index.internalPointer()
+    #     if role == Qt.ItemDataRole.DisplayRole:
+    #         row = index.row()
+    #         column = index.column()
+    #         if isinstance(item, TableNode) and column > 0:
+    #             return QVariant()
+    #         elif isinstance(item, TableNode) and column == 0:
+    #             return item.text
+    #         elif isinstance(item, TableLeaf) and column < len(self._exif_cols):
+    #             value = TableLeaf.data[column]
+    #             return str(value)
+    #         else:
+    #             return str(item)
+    #     return QVariant()
 
-        if row < len(parent_node.children):
-            item = parent_node.children[row]
-            key = self._exif_cols[column]
-            # TODO: Improve this logic
-            if isinstance(item, TableNode) and column > 0:
-                return QModelIndex()
-            elif isinstance(item, TableNode) and column == 0:
-                return self.createIndex(row, column, item)
-            elif isinstance(item, TableLeaf) and key in item.data:
-                value = item.data[key]
-                return self.createIndex(row, column, value)
-            else:
-                return QModelIndex()
-        else:
-            return QModelIndex()
-
-    @override
-    def data(self, index, role=...):
-        if not index.isValid():
-            return QVariant()
-        # p_index = QPersistentModelIndex(index)
-        # item = self._QStandardItem_cache.get(p_index)
-        # if item is not None:
-        #     return item
-        item = index.internalPointer()
-        if role == Qt.ItemDataRole.DisplayRole:
-            row = index.row()
-            column = index.column()
-            if isinstance(item, TableNode) and column > 0:
-                return QVariant()
-            elif isinstance(item, TableNode) and column == 0:
-                # self._QStandardItem_cache[p_index] = item.text
-                return QStandardItem(str(item.text))
-                # return item.text
-            elif isinstance(item, TableLeaf) and column < len(self._exif_cols):
-                value = TableLeaf.data[column]
-                # self._QStandardItem_cache[p_index] = value
-                # return str(value)
-                return QStandardItem(str(value))
-            else:
-                # self._QStandardItem_cache[p_index] = str(item)
-                return QStandardItem(str(item))
-                # return str(item)
-        return QVariant()
-
-    @override
-    def parent(self, index):
-        if not index.isValid():
-            return QModelIndex()
-
-        child = index.internalPointer()
-        parent = child.parent
-
-        if parent == self._root_node:
-            return QModelIndex()
-
-        return self.createIndex(0, 0, parent)
+    # @override
+    # def parent(self, index):
+    #     if not index.isValid():
+    #         return QModelIndex()
+    #
+    #     child = index.internalPointer()
+    #     parent = child.parent
+    #
+    #     if parent == self._root_node:
+    #         return QModelIndex()
+    #
+    #     return self.createIndex(0, 0, parent)
 
     @override
     def rowCount(self, parent: QModelIndex = None) -> int:
-        if self.orientation == Qt.Orientation.Horizontal:
-            if not parent.isValid():
-                parent_node = self._root_node
-            else:
-                parent_node = parent.internalPointer()
-            if isinstance(parent_node, TableNode):
-                return len(parent_node.children)
-            else:
-                return 0
-        else:
-            return len(self._exif_cols)
+        return 0
+        # if self.orientation == Qt.Orientation.Horizontal:
+        #     if not parent.isValid():
+        #         parent_node = self._root_node
+        #     else:
+        #         parent_node = parent.internalPointer()
+        #     if isinstance(parent_node, TableNode):
+        #         return len(parent_node.children)
+        #     else:
+        #         return 0
+        # else:
+        #     return len(self._exif_cols)
 
     @override
     def columnCount(self, parent: QModelIndex = None) -> int:
@@ -548,12 +541,12 @@ class TableModelV2(QAbstractItemModel):
         else:
             return 2
 
-    @override
-    def canFetchMore(self, index):
-        if not index.isValid():
-            return False
-        item = index.internalPointer()
-        return False
+    # @override
+    # def canFetchMore(self, index):
+    #     if not index.isValid():
+    #         return False
+    #     item = index.internalPointer()
+    #     return False
 
     @override
     def headerData(self, p_int, p_orientation, role=None):
@@ -589,8 +582,7 @@ class TableModelV2(QAbstractItemModel):
             for _path, entries in item.data.items():
                 for entry in entries:
                     _flat_list.append(entry)
-        return []
-        # return _flat_list
+        return _flat_list
 
     @staticmethod
     # TODO: Move to separate helper class to make testing easier
@@ -675,13 +667,9 @@ if __name__ == '__main__':
     _proxy_model = QSortFilterProxyModel(view)
     _proxy_model.setRecursiveFilteringEnabled(True)
     _proxy_model.setSourceModel(tm)
+    view.setSortingEnabled(True)
     view.setModel(_proxy_model)
     view.setWindowTitle("Simple Tree Model")
-    header = view.header()
-    header.setStretchLastSection(False)
-    header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-    header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-    header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
 
     widget = QWidget()
     layout = QVBoxLayout()

@@ -368,19 +368,20 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
     def _display_model_data(self, model_data: list, fields: set):
         self._view_manager.show_data(model_data, list(fields))
 
-    def _file_click(self, file_data: FileData):
-        return
-        # TODO: THis could be a random item. CHeck if its file data
-        # Query the collection for this file
-        file, root_path = self.collection.search(str(Path(file_data.directory) / Path(file_data.file_name)))
-        if file is not None:
-            model_data = ModelData(data=file, path=root_path)
+    def _file_click(self, itemdata: dict, file_data: FileData | None, collection_path: str):
+        model_data = None
+        if file_data is not None:
+            # Query the collection for this file
+            file, _ = self.collection.search(str(file_data.sourcefile))
+            if file is not None:
+                model_data = ModelData(data=file, path=collection_path)
+        else:
+            model_data = ModelData(data=itemdata, path=collection_path)
+
+        if model_data:
             for plugin in self._plugins:
                 if isinstance(plugin, FileClickHandler):
                     plugin.handle_file_click([model_data], self.collection.tags)
-        else:
-            self.statusBar().showMessage(f"{file_data.file_name} was not found in collection.",
-                                         self._MLIB_UI_STATUS_MESSAGE_TIMEOUT)
 
     def _get_new_path(self, is_dir=False) -> list:
         exiftool_file_filter = f"ExifTool Supported Files (*.{' *.'.join(exifinfo.SUPPORTED_FORMATS.split(' '))})"
