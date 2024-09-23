@@ -11,7 +11,6 @@ from app import appsettings, apputils
 from app.collection import props
 from app.collection.ds import Collection, HasCollectionDisplaySupport
 from app.collection.props import DBType
-from app.views import ViewType
 
 
 def _find_action(text, actions):
@@ -66,7 +65,7 @@ class DBAction(StrEnum):
     PATH_CHANGE = "Path Change"
 
 
-class ViewAction(StrEnum):
+class ViewContextMenuAction(StrEnum):
     VIEW = "View"
     COLUMN = "Column"
     GROUP_BY = "Group By"
@@ -85,8 +84,8 @@ class ViewContextMenu(QMenu, HasCollectionDisplaySupport):
     def show_collection(self, collection: Collection):
         # Now Build the new menus
         self._update_presets_menu(collection)
-        self._show_field_selection(collection.tags, self._vm_columns, True, ViewAction.COLUMN)
-        self._show_field_selection(collection.tags, self._vm_groupby, False, ViewAction.GROUP_BY)
+        self._show_field_selection(collection.tags, self._vm_columns, True, ViewContextMenuAction.COLUMN)
+        self._show_field_selection(collection.tags, self._vm_groupby, False, ViewContextMenuAction.GROUP_BY)
         self._vm_presets.setEnabled(True)
         self._vm_columns.setEnabled(True)
         self._vm_groupby.setEnabled(True)
@@ -99,6 +98,7 @@ class ViewContextMenu(QMenu, HasCollectionDisplaySupport):
         self._vm_presets.setEnabled(False)
         self._vm_columns.setEnabled(False)
         self._vm_groupby.setEnabled(False)
+        self._view_fs.setChecked(False)
         self._hidden_tags = set()
         self._all_tags = []
         self._group_by = []
@@ -109,14 +109,19 @@ class ViewContextMenu(QMenu, HasCollectionDisplaySupport):
         self._open.setEnabled(file_exists)
         self._explore.setVisible(file_ops)
         self._explore.setEnabled(file_exists)
-        self._fs_view.setVisible(file_ops)
-        self._fs_view.setEnabled(file_ops)
+        self._view_fs.setVisible(file_ops)
+        self._view_fs.setEnabled(file_ops)
+        if not file_ops and self._view_fs.isChecked():
+            self._view_fs.setChecked(False)
         self.exec(cm_args.globalPos())
 
     def set_available_fields(self, available_fields: list):
         self._all_tags = available_fields
 
-    def _show_field_selection(self, fields: list, reference_menu: QMenu, items_enabled: bool, event_source: ViewAction):
+    def is_fs_view_requested(self):
+        return self._view_fs.isEnabled() and self._view_fs.isChecked()
+
+    def _show_field_selection(self, fields: list, reference_menu: QMenu, items_enabled: bool, event_source: ViewContextMenuAction):
         reference_menu.clear()
         groups = apputils.create_tag_groups(fields)
         if props.DB_TAG_GROUP_DEFAULT in groups:
@@ -149,16 +154,16 @@ class ViewContextMenu(QMenu, HasCollectionDisplaySupport):
         self._vm_groupby.setIcon(QIcon.fromTheme("view-list-tree"))
         self._presets_group = QActionGroup(self._vm_presets)
         self._presets_group.setExclusive(True)
-        self._open = apputils.create_action(self, ViewAction.OPEN, icon="document-open",
+        self._open = apputils.create_action(self, ViewContextMenuAction.OPEN, icon="document-open",
                                             tooltip="Open in default application",
                                             func=self._raise_view_event, enabled=False)
-        self._explore = apputils.create_action(self, ViewAction.EXPLORE, icon="system-file-manager",
+        self._explore = apputils.create_action(self, ViewContextMenuAction.EXPLORE, icon="system-file-manager",
                                                tooltip="Open in shell explorer",
                                                func=self._raise_view_event, enabled=False)
-        self._fs_view = apputils.create_action(self, ViewAction.FS_VIEW, icon="view-list-tree",
+        self._view_fs = apputils.create_action(self, ViewContextMenuAction.FS_VIEW, icon="view-list-tree",
                                                tooltip="View results in file hierarchy",
-                                               func=self._raise_view_event, enabled=False)
-        self._export = apputils.create_action(self, ViewAction.EXPORT, icon="document-export",
+                                               func=self._raise_view_event, enabled=False, checked=False)
+        self._export = apputils.create_action(self, ViewContextMenuAction.EXPORT, icon="document-export",
                                               tooltip="Export data to file",
                                               func=self._raise_view_event, enabled=True)
 
@@ -167,7 +172,7 @@ class ViewContextMenu(QMenu, HasCollectionDisplaySupport):
     def _init_default_menu(self):
         self.addAction(self._open)
         self.addAction(self._explore)
-        self.addAction(self._fs_view)
+        self.addAction(self._view_fs)
         self.addSeparator()
         self.addMenu(self._vm_columns)
         self.addMenu(self._vm_groupby)
@@ -227,22 +232,22 @@ class ViewContextMenu(QMenu, HasCollectionDisplaySupport):
         source = field.property(self._PROP_SOURCE)
 
         match source:
-            case ViewAction.GROUP_BY:
+            case ViewContextMenuAction.GROUP_BY:
                 if field.isChecked():
                     logging.debug(f"{field_id} was added to group-by by user.")
                     self._group_by.append(field_id)
                 else:
                     logging.debug(f"{field_id} was removed from group-by by user.")
                     self._group_by.remove(field_id)
-                self.view_event.emit(ViewAction.GROUP_BY, self._group_by)
-            case ViewAction.COLUMN:
+                self.view_event.emit(ViewContextMenuAction.GROUP_BY, self._group_by)
+            case ViewContextMenuAction.COLUMN:
                 if field.isChecked():
                     logging.debug(f"{field_id} was checked by user.")
                     self._hidden_tags.remove(field_id)
                 else:
                     logging.debug(f"{field_id} was un-checked by user.")
                     self._hidden_tags.add(field_id)
-                self.view_event.emit(ViewAction.COLUMN, [f for f in self._all_tags if f not in self._hidden_tags])
+                self.view_event.emit(ViewContextMenuAction.COLUMN, [f for f in self._all_tags if f not in self._hidden_tags])
 
     @staticmethod
     def _add_menu_item(parent: QMenu, widget):
@@ -494,7 +499,7 @@ class FileMenu(QMenu):
 
 
 class AppMenuBar(QMenuBar, HasCollectionDisplaySupport):
-    view_event = pyqtSignal(ViewAction, "PyQt_PyObject")
+    view_event = pyqtSignal(ViewContextMenuAction, "PyQt_PyObject")
     db_event = pyqtSignal(DBAction, "PyQt_PyObject")
     medialib_event = pyqtSignal(MediaLibAction)
 

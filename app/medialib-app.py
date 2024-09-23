@@ -19,9 +19,9 @@ from app.collection.ds import Collection, CollectionNotFoundError, CorruptedColl
     CollectionQueryError
 from app.plugins import search, info
 from app.plugins.framework import SearchEventHandler, FileClickHandler, FileData
+from app.presentation.viewmanager import ViewManager
 from app.tasks import TaskManager, Task, TaskStatus
-from app.view import ViewManager
-from app.views import ModelData
+from app.presentation.models import ModelData
 
 
 class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
