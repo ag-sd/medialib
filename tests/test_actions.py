@@ -4,13 +4,13 @@ import unittest
 
 from PyQt6.QtCore import Qt, QEvent
 from PyQt6.QtGui import QAction, QKeyEvent
-from PyQt6.QtWidgets import QWidget, QWidgetAction, QDockWidget
+from PyQt6.QtWidgets import QWidget, QWidgetAction, QDockWidget, QMenu
 
 import app
 from app import actions, apputils, appsettings
-from app.actions import ViewMenu, HelpMenu, MediaLibAction, FileMenu, CollectionMenu, DBAction, AppMenuBar
+from app.actions import HelpMenu, MediaLibAction, FileMenu, CollectionMenu, DBAction, AppMenuBar, ViewContextMenu, \
+    ViewContextMenuAction
 from app.plugins.framework import WindowInfo
-from app.views import ViewType
 from tests.collection import test_utils
 from tests.collection.test_utils import CallbackHandler
 
@@ -50,18 +50,21 @@ class TestActions(unittest.TestCase):
 class TestViewMenu(unittest.TestCase):
 
     def setUp(self):
-        self._view_menu = ViewMenu(None)
+        self._view_menu = ViewContextMenu(None)
 
     def test_init_menu(self):
         _actions = list(self._view_menu.actions())
-        self.assertTrue(_actions[0].property("view-action"))
-        self.assertTrue(_actions[1].property("view-action"))
-        self.assertTrue(_actions[2].property("view-action"))
+        self.assertEqual(_actions[0].text(), ViewContextMenuAction.OPEN)
+        self.assertEqual(_actions[1].text(), ViewContextMenuAction.EXPLORE)
+        self.assertEqual(_actions[2].text(), ViewContextMenuAction.FS_VIEW)
         self.assertTrue(_actions[3].isSeparator())
-        self.assertEqual(_actions[4].text(), "All Fields")
-        self.assertEqual(_actions[5].text(), "Preset Views")
+        self.assertEqual(_actions[4].text(), "Columns")
+        self.assertEqual(_actions[5].text(), "Group By")
+        self.assertEqual(_actions[6].text(), "Preset Views")
+        self.assertTrue(_actions[7].isSeparator())
+        self.assertEqual(_actions[8].text(), ViewContextMenuAction.EXPORT)
 
-        self.assertEqual(len(_actions), 6)
+        self.assertEqual(len(_actions), 9)
 
     def test_show_collection_image_files(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -71,9 +74,9 @@ class TestViewMenu(unittest.TestCase):
             db.save()
             self._view_menu.show_collection(db)
             # Available fields count will be different
-            self.assertEqual(len(list(self._view_menu._view_menu_all_fields.actions())), 8)
+            self.assertEqual(len(list(self._view_menu._vm_columns.actions())), 8)
             # Presets are available
-            self.assertEqual(len(list(self._view_menu._view_menu_presets.actions())), 2)
+            self.assertEqual(len(list(self._view_menu._vm_presets.actions())), 2)
 
     def test_show_collection_audio_files(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -83,9 +86,9 @@ class TestViewMenu(unittest.TestCase):
             db.save()
             self._view_menu.show_collection(db)
             # Available fields count will be different
-            self.assertEqual(len(list(self._view_menu._view_menu_all_fields.actions())), 11)
+            self.assertEqual(len(list(self._view_menu._vm_columns.actions())), 11)
             # Presets are available
-            self.assertEqual(len(list(self._view_menu._view_menu_presets.actions())), 2)
+            self.assertEqual(len(list(self._view_menu._vm_presets.actions())), 2)
 
     def test_shut_collection(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -96,24 +99,10 @@ class TestViewMenu(unittest.TestCase):
             self._view_menu.show_collection(db)
             self._view_menu.shut_collection()
             # Fields is disabled
-            self.assertFalse(self._view_menu._view_menu_all_fields.isEnabled())
-            self.assertFalse(self._view_menu._view_menu_presets.isEnabled())
-
-    def test_update_views_disable(self):
-        self._view_menu.update_available_views([])
-        self.assertFalse(self._view_menu.actions()[0].isEnabled())
-        self.assertFalse(self._view_menu.actions()[1].isEnabled())
-
-    def test_update_views_enable(self):
-        self._view_menu.update_available_views([e.name for e in ViewType])
-        self.assertTrue(self._view_menu.actions()[0].isEnabled())
-        self.assertTrue(self._view_menu.actions()[1].isEnabled())
-
-    def test_view_event_raised(self):
-        cb = CallbackHandler(self._view_menu.view_event, expects_callback=True, callback_count=2)
-        self._view_menu.actions()[0].trigger()
-        self._view_menu.actions()[1].trigger()
-        self.assertTrue(cb.callback_handled_correctly)
+            self.assertFalse(self._view_menu._vm_columns.isEnabled())
+            self.assertFalse(self._view_menu._vm_presets.isEnabled())
+            self.assertFalse(self._view_menu._vm_groupby.isEnabled())
+            self.assertFalse(self._view_menu._view_fs.isChecked())
 
 
 class TestHelpMenu(unittest.TestCase):
@@ -221,13 +210,13 @@ class TestCollectionMenu(unittest.TestCase):
             db = test_utils.create_test_media_db(db_path, test_paths)
             db.save()
             self._db_menu.show_collection(db)
-            self.assertTrue(self._db_action(DBAction.SAVE).isEnabled())
-            self.assertTrue(self._db_action(DBAction.SAVE_AS).isEnabled())
-            self.assertTrue(self._db_action(DBAction.RESET).isEnabled())
-            self.assertTrue(self._db_action(DBAction.REFRESH).isEnabled())
-            self.assertTrue(self._db_action(DBAction.REFRESH_SELECTED).isEnabled())
-            self.assertTrue(self._db_action(DBAction.BOOKMARK).isEnabled())
-            self.assertTrue(self._db_action(DBAction.SHUT_DB).isEnabled())
+            self.assertTrue(_find_action(DBAction.SAVE, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.SAVE_AS, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.RESET, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.REFRESH, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.REFRESH_SELECTED, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.BOOKMARK, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.SHUT_DB, self._db_menu).isEnabled())
             self.assertTrue(self._db_menu._paths_menu.isEnabled())
 
             self.assertEqual(len(self._db_menu._paths_menu.actions()), len(test_paths))
@@ -239,13 +228,13 @@ class TestCollectionMenu(unittest.TestCase):
             db.save()
             db.is_private = True
             self._db_menu.show_collection(db)
-            self.assertTrue(self._db_action(DBAction.SAVE).isEnabled())
-            self.assertTrue(self._db_action(DBAction.SAVE_AS).isEnabled())
-            self.assertTrue(self._db_action(DBAction.RESET).isEnabled())
-            self.assertTrue(self._db_action(DBAction.REFRESH).isEnabled())
-            self.assertTrue(self._db_action(DBAction.REFRESH_SELECTED).isEnabled())
-            self.assertFalse(self._db_action(DBAction.BOOKMARK).isEnabled())
-            self.assertTrue(self._db_action(DBAction.SHUT_DB).isEnabled())
+            self.assertTrue(_find_action(DBAction.SAVE, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.SAVE_AS, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.RESET, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.REFRESH, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.REFRESH_SELECTED, self._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.BOOKMARK, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.SHUT_DB, self._db_menu).isEnabled())
             self.assertTrue(self._db_menu._paths_menu.isEnabled())
 
             self.assertEqual(len(self._db_menu._paths_menu.actions()), len(test_paths))
@@ -256,13 +245,13 @@ class TestCollectionMenu(unittest.TestCase):
             db = test_utils.create_test_media_db(db_path, test_paths)
             db.is_private = True
             self._db_menu.show_collection(db)
-            self.assertFalse(self._db_action(DBAction.SAVE).isEnabled())
-            self.assertTrue(self._db_action(DBAction.SAVE_AS).isEnabled())
-            self.assertFalse(self._db_action(DBAction.RESET).isEnabled())
-            self.assertTrue(self._db_action(DBAction.REFRESH).isEnabled())
-            self.assertTrue(self._db_action(DBAction.REFRESH_SELECTED).isEnabled())
-            self.assertFalse(self._db_action(DBAction.BOOKMARK).isEnabled())
-            self.assertTrue(self._db_action(DBAction.SHUT_DB).isEnabled())
+            self.assertFalse(_find_action(DBAction.SAVE, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.SAVE_AS, self._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.RESET, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.REFRESH, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.REFRESH_SELECTED, self._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.BOOKMARK, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.SHUT_DB, self._db_menu).isEnabled())
             self.assertTrue(self._db_menu._paths_menu.isEnabled())
 
             self.assertEqual(len(self._db_menu._paths_menu.actions()), len(test_paths))
@@ -277,13 +266,13 @@ class TestCollectionMenu(unittest.TestCase):
 
             # Test
             self._db_menu.shut_collection()
-            self.assertFalse(self._db_action(DBAction.SAVE).isEnabled())
-            self.assertFalse(self._db_action(DBAction.SAVE_AS).isEnabled())
-            self.assertFalse(self._db_action(DBAction.RESET).isEnabled())
-            self.assertFalse(self._db_action(DBAction.REFRESH).isEnabled())
-            self.assertFalse(self._db_action(DBAction.REFRESH_SELECTED).isEnabled())
-            self.assertFalse(self._db_action(DBAction.BOOKMARK).isEnabled())
-            self.assertFalse(self._db_action(DBAction.SHUT_DB).isEnabled())
+            self.assertFalse(_find_action(DBAction.SAVE, self._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.SAVE_AS, self._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.RESET, self._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.REFRESH, self._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.REFRESH_SELECTED, self._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.BOOKMARK, self._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.SHUT_DB, self._db_menu).isEnabled())
             self.assertFalse(self._db_menu._paths_menu.isEnabled())
 
             self.assertEqual(len(self._db_menu._paths_menu.actions()), 0)
@@ -294,13 +283,13 @@ class TestCollectionMenu(unittest.TestCase):
             db = test_utils.create_test_media_db(db_path, test_paths)
 
             self._db_menu.show_collection(db)
-            self.assertFalse(self._db_action(DBAction.SAVE).isEnabled())
-            self.assertTrue(self._db_action(DBAction.SAVE_AS).isEnabled())
-            self.assertFalse(self._db_action(DBAction.RESET).isEnabled())
-            self.assertTrue(self._db_action(DBAction.REFRESH).isEnabled())
-            self.assertTrue(self._db_action(DBAction.REFRESH_SELECTED).isEnabled())
-            self.assertFalse(self._db_action(DBAction.BOOKMARK).isEnabled())
-            self.assertTrue(self._db_action(DBAction.SHUT_DB).isEnabled())
+            self.assertFalse(_find_action(DBAction.SAVE, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.SAVE_AS, self._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.RESET, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.REFRESH, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.REFRESH_SELECTED, self._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.BOOKMARK, self._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.SHUT_DB, self._db_menu).isEnabled())
             self.assertTrue(self._db_menu._paths_menu.isEnabled())
 
             self.assertEqual(len(self._db_menu._paths_menu.actions()), len(test_paths))
@@ -314,13 +303,13 @@ class TestCollectionMenu(unittest.TestCase):
 
             # Test
             self._db_menu.shut_collection()
-            self.assertFalse(self._db_action(DBAction.SAVE).isEnabled())
-            self.assertFalse(self._db_action(DBAction.SAVE_AS).isEnabled())
-            self.assertFalse(self._db_action(DBAction.RESET).isEnabled())
-            self.assertFalse(self._db_action(DBAction.REFRESH).isEnabled())
-            self.assertFalse(self._db_action(DBAction.REFRESH_SELECTED).isEnabled())
-            self.assertFalse(self._db_action(DBAction.BOOKMARK).isEnabled())
-            self.assertFalse(self._db_action(DBAction.SHUT_DB).isEnabled())
+            self.assertFalse(_find_action(DBAction.SAVE, self._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.SAVE_AS, self._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.RESET, self._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.REFRESH, self._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.REFRESH_SELECTED, self._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.BOOKMARK, self._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.SHUT_DB, self._db_menu).isEnabled())
             self.assertFalse(self._db_menu._paths_menu.isEnabled())
 
             self.assertEqual(len(self._db_menu._paths_menu.actions()), 0)
@@ -397,10 +386,10 @@ class TestCollectionMenu(unittest.TestCase):
             db = test_utils.create_test_media_db(db_path, test_paths)
             self._db_menu.show_collection(db)
             self._db_menu.collection_event.connect(cb_func)
-            self._db_action(DBAction.SAVE_AS).trigger()  # Will trigger
-            self._db_action(DBAction.SAVE).trigger()  # Will not trigger as it's disabled for in-memory db
-            self._db_action(DBAction.SHUT_DB).trigger()  # Will trigger
-            self._db_action(DBAction.REFRESH).trigger()  # Will trigger
+            _find_action(DBAction.SAVE_AS, self._db_menu).trigger()  # Will trigger
+            _find_action(DBAction.SAVE, self._db_menu).trigger()  # Will not trigger as it's disabled for in-memory db
+            _find_action(DBAction.SHUT_DB, self._db_menu).trigger()  # Will trigger
+            _find_action(DBAction.REFRESH, self._db_menu).trigger()  # Will trigger
             self.assertTrue(self._callback_handled)
             self.assertEqual(self._callback_counter, 0)
 
@@ -416,10 +405,10 @@ class TestCollectionMenu(unittest.TestCase):
             db = test_utils.create_test_media_db(db_path, test_paths)
             self._db_menu.show_collection(db)
             self._db_menu.collection_event.connect(cb_func)
-            self._db_action(DBAction.REFRESH_SELECTED).trigger()
+            _find_action(DBAction.REFRESH_SELECTED, self._db_menu).trigger()
             self.assertTrue(self._callback_handled)
 
-    def _db_action(self, action_name):
+    def _find_action(self, action_name):
         return actions._find_action(action_name, self._db_menu.actions())
 
 
@@ -445,19 +434,15 @@ class TestAppMenuBar(unittest.TestCase):
 
             self._menu.show_collection(db)
 
-            self.assertTrue(self._db_action(DBAction.SAVE).isEnabled())
-            self.assertTrue(self._db_action(DBAction.SAVE_AS).isEnabled())
-            self.assertTrue(self._db_action(DBAction.RESET).isEnabled())
-            self.assertTrue(self._db_action(DBAction.REFRESH).isEnabled())
-            self.assertTrue(self._db_action(DBAction.REFRESH_SELECTED).isEnabled())
-            self.assertTrue(self._db_action(DBAction.BOOKMARK).isEnabled())
-            self.assertTrue(self._db_action(DBAction.SHUT_DB).isEnabled())
+            self.assertTrue(_find_action(DBAction.SAVE, self._menu._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.SAVE_AS, self._menu._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.RESET, self._menu._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.REFRESH, self._menu._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.REFRESH_SELECTED, self._menu._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.BOOKMARK, self._menu._db_menu).isEnabled())
+            self.assertTrue(_find_action(DBAction.SHUT_DB, self._menu._db_menu).isEnabled())
             self.assertTrue(self._menu._db_menu._paths_menu.isEnabled())
             self.assertEqual(len(self._menu._db_menu._paths_menu.actions()), len(test_paths))
-
-            self.assertEqual(len(list(self._menu._view_menu._view_menu_all_fields.actions())), 13)
-            # Presets are available
-            self.assertEqual(len(list(self._menu._view_menu._view_menu_presets.actions())), 2)
 
     def test_shut_collection(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -468,22 +453,18 @@ class TestAppMenuBar(unittest.TestCase):
 
             self._menu.show_collection(db)
             self.assertEqual(len(self._menu._db_menu._paths_menu.actions()), len(test_paths))
-            self.assertEqual(len(list(self._menu._view_menu._view_menu_all_fields.actions())), 13)
 
             # Actual Test
             self._menu.shut_collection()
-            self.assertFalse(self._db_action(DBAction.SAVE).isEnabled())
-            self.assertFalse(self._db_action(DBAction.SAVE_AS).isEnabled())
-            self.assertFalse(self._db_action(DBAction.RESET).isEnabled())
-            self.assertFalse(self._db_action(DBAction.REFRESH).isEnabled())
-            self.assertFalse(self._db_action(DBAction.REFRESH_SELECTED).isEnabled())
-            self.assertFalse(self._db_action(DBAction.BOOKMARK).isEnabled())
-            self.assertFalse(self._db_action(DBAction.SHUT_DB).isEnabled())
+            self.assertFalse(_find_action(DBAction.SAVE, self._menu._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.SAVE_AS, self._menu._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.RESET, self._menu._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.REFRESH, self._menu._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.REFRESH_SELECTED, self._menu._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.BOOKMARK, self._menu._db_menu).isEnabled())
+            self.assertFalse(_find_action(DBAction.SHUT_DB, self._menu._db_menu).isEnabled())
             self.assertFalse(self._menu._db_menu._paths_menu.isEnabled())
             self.assertEqual(len(self._menu._db_menu._paths_menu.actions()), 0)
-
-            self.assertFalse(self._menu._view_menu._view_menu_all_fields.isEnabled())
-            self.assertFalse(self._menu._view_menu._view_menu_presets.isEnabled())
 
     def test_get_selected_paths(self):
         with tempfile.TemporaryDirectory() as db_path:
@@ -518,5 +499,6 @@ class TestAppMenuBar(unittest.TestCase):
         self.assertEqual(1, len(self._menu._window_menu.children()))
         self._menu.register_plugin(DummyPl())
 
-    def _db_action(self, action_name):
-        return actions._find_action(action_name, self._menu._db_menu.actions())
+
+def _find_action(action_name: str, menu: QMenu):
+    return actions._find_action(action_name, menu.actions())

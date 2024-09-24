@@ -8,7 +8,7 @@ from PyQt6.QtCore import Qt
 from app import apputils
 from app.collection import props
 from app.plugins.info import FileInfoPlugin
-from app.views import ModelData
+from app.presentation.models import ModelData
 from tests.collection import test_utils
 
 

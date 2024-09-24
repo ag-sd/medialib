@@ -12,13 +12,10 @@ TODO
 ## TODO
 ### Currently work priority
 1. Support for really large collections
-2. Group by any column (keep tableview and deprecate all other views)
-3. Export data
-4. Find in virtual table(Not needed if #2 can be done)
-5. System diagram using Mermaid
-6. Data diagram using Mermaid
-7. Encrypted collections
-8. Cached preview objects
+2. Export data
+3. System diagram using Mermaid
+4. Data diagram using Mermaid
+5. Cached preview objects
 
 ### Backlog
 - DB support
@@ -64,10 +61,14 @@ TODO
   - Click Ctrl on Collections menu will show a hidden option to open a private collection
   - Private Collections cannot be bookmarked or saved to recents
   - logging is limited to critical errors only when browsing private collections, but user can override this
+- [x] Group by any column (keep tableview and deprecate all other views)
+- [x] Find in virtual table(Not needed if #2 can be done)
+
 
 ### Cancelled Tasks
 1. ~~Rename Path to Directory~~
 2. ~~Paginated results~~
+3. ~~Encrypted collections~~
 
 ### Issues
 1. ~~When a new path is added to a saved collection, the info service does not work because the new path is not yet indexed~~
