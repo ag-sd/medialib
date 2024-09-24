@@ -1,6 +1,9 @@
+import tempfile
 import unittest
 
-from app.presentation.models import ViewItem
+from app.presentation.models import ViewItem, ModelData, BaseViewBuilder, FileSystemModelBuilder, GroupTreeItemBuilder
+from tests.collection import test_utils
+from pathlib import Path
 
 
 class TestViewItem(unittest.TestCase):
@@ -32,6 +35,8 @@ class TestViewItem(unittest.TestCase):
         self.assertEqual(0, item2.row)
         self.assertEqual(1, item3.row)
 
+        self.assertEqual(2, len(item1.children))
+
     def test_leaf_item(self):
         item1 = ViewItem(icon=None, text="Foo", parent=None, data={}, file_data=None)
         item2 = ViewItem(icon=None, text="Bar", parent=None, data={}, file_data=None)
@@ -44,6 +49,100 @@ class TestViewItem(unittest.TestCase):
         self.assertTrue(item3.is_leaf_item)
         self.assertFalse(item1.is_leaf_item)
 
+
+class TestViewManagerPreprocessor(unittest.TestCase):
+
+    def setUp(self):
+        self._base_view = BaseViewBuilder()
+
+    def test_buildBaseView(self):
+        with tempfile.TemporaryDirectory() as db_path:
+            test_paths = test_utils.get_test_paths()
+            db = test_utils.create_test_media_db(db_path, test_paths)
+            model_data = []
+            for path in db.paths:
+                for _path, entry in db.data([path]).items():
+                    model_data.append(ModelData(data=entry, path=_path))
+
+            self._base_view.build(model_data=model_data)
+            self.assertListEqual(test_paths, self._base_view.collection_paths)
+            self.assertEqual(6, len(self._base_view.data))
+            self.assertTrue(self._base_view.is_file_ops_available)
+
+    def test_buildBaseView_empty(self):
+        self._base_view.build(model_data=[])
+        self.assertListEqual([], self._base_view.collection_paths)
+        self.assertEqual(0, len(self._base_view.data))
+        self.assertFalse(self._base_view.is_file_ops_available)
+
+
+class TestFileSystemModelBuilder(unittest.TestCase):
+
+    def setUp(self):
+        self._builder = FileSystemModelBuilder()
+
+    def _test_nodes(self, path_components, root_node, expected_count):
+        part = path_components.pop(0)
+        self.assertEqual(part, root_node.text)
+        if len(path_components) > 0:
+            self._test_nodes(path_components, root_node.children[0], expected_count)
+        else:
+            self.assertEqual(expected_count, root_node.row_count)
+
+    def test_buildFs(self):
+        with tempfile.TemporaryDirectory() as db_path:
+            test_paths = test_utils.get_test_paths()
+            db = test_utils.create_test_media_db(db_path, test_paths)
+            model_data = []
+            for path in db.paths:
+                for _path, entry in db.data([path]).items():
+                    model_data.append(ModelData(data=entry, path=_path))
+            base_view = BaseViewBuilder()
+            base_view.build(model_data=model_data)
+            result = self._builder.build(view_items=base_view.data)
+            self._test_nodes(list(Path(test_paths[0]).parts), result, 2)
+
+
+class TestGroupTreeItemBuilder(unittest.TestCase):
+
+    def setUp(self):
+        self._builder = GroupTreeItemBuilder()
+
+    def test_buildGTOneLevel(self):
+        with tempfile.TemporaryDirectory() as db_path:
+            test_paths = test_utils.get_test_paths()
+            db = test_utils.create_test_media_db(db_path, test_paths)
+            model_data = []
+            for path in db.paths:
+                for _path, entry in db.data([path]).items():
+                    model_data.append(ModelData(data=entry, path=_path))
+            base_view = BaseViewBuilder()
+            base_view.build(model_data=model_data)
+            result = self._builder.build(view_items=base_view.data, group_by=["File:FileType"])
+            expected_groups = {"MP3", "OGG", "GIF", "JPEG", "PNG", "TIFF"}
+            for i in range(0, result.row_count):
+                group = result.children[i].text
+                self.assertTrue(group in expected_groups)
+                expected_groups.remove(group)
+            self.assertEqual(0, len(expected_groups))
+
+    def test_group_unknown(self):
+        with tempfile.TemporaryDirectory() as db_path:
+            test_paths = test_utils.get_test_paths()
+            db = test_utils.create_test_media_db(db_path, test_paths)
+            model_data = []
+            for path in db.paths:
+                for _path, entry in db.data([path]).items():
+                    model_data.append(ModelData(data=entry, path=_path))
+            base_view = BaseViewBuilder()
+            base_view.build(model_data=model_data)
+            result = self._builder.build(view_items=base_view.data, group_by=["File:FileTypeXCX"])
+            expected_groups = {"N/A"}
+            for i in range(0, result.row_count):
+                group = result.children[i].text
+                self.assertTrue(group in expected_groups)
+                expected_groups.remove(group)
+            self.assertEqual(0, len(expected_groups))
 
 # class JsonViewTests(unittest.TestCase):
 #

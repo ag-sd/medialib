@@ -16,6 +16,22 @@ _GROUP_BG.setAlpha(18)
 _ICON_FOLDER = QIcon.fromTheme("folder")
 _UNKNOWN = "N/A"
 
+_MIME_ICON_CACHE = {}
+
+
+def get_mime_type_icon(mime_type_icon_name: str, use_fallback_icon=True):
+    if mime_type_icon_name not in _MIME_ICON_CACHE:
+        mime_icon = QIcon.fromTheme(mime_type_icon_name)
+        if mime_icon is None and use_fallback_icon:
+            # Icon was not found, so let's return a generic icon
+            app.logger.debug(f"Adding icon for {mime_type_icon_name} to cache")
+            if mime_type_icon_name == "text-x-generic":
+                app.logger.warning(f"Icon for {mime_type_icon_name} was not found, will return None")
+                return None
+            return get_mime_type_icon("text-x-generic")
+        _MIME_ICON_CACHE[mime_type_icon_name] = mime_icon
+    return _MIME_ICON_CACHE[mime_type_icon_name]
+
 
 @dataclass
 class ModelData:
@@ -61,6 +77,47 @@ class ModelBuilder:
     @abstractmethod
     def build(self, **kwargs):
         raise NotImplemented
+
+
+class BaseViewBuilder(ModelBuilder):
+
+    def __init__(self):
+        self._model_data: list = []
+        self._collection_paths: list = []
+        self._file_ops_available = False
+
+    @property
+    def data(self):
+        return self._model_data
+
+    @property
+    def collection_paths(self):
+        return self._collection_paths
+
+    @property
+    def is_file_ops_available(self):
+        return self._file_ops_available
+
+    def build(self, **kwargs):
+        _flat_list = []
+        _collection_paths = []
+        _file_ops_available = len(kwargs["model_data"]) > 0  # False if no data
+        for item in kwargs["model_data"]:
+            _path = item.path
+            _collection_paths.append(_path)
+            for entry in item.data:
+                file_data = FileData.from_dict(entry, _path)
+                icon = None
+                if file_data is not None:
+                    icon = get_mime_type_icon(file_data.mime_type)
+                # Add the path to each entry
+                entry[props.FIELD_COLLECTION_PATH] = _path
+                entry[props.FIELD_COLLECTION_FILEDATA] = file_data
+                _file_ops_available = _file_ops_available and file_data is not None
+                _flat_list.append(ViewItem(icon=icon, parent=None, data=entry))
+        self._model_data = _flat_list
+        self._collection_paths = _collection_paths
+        self._file_ops_available = _file_ops_available
 
 
 class FileSystemModelBuilder(ModelBuilder):

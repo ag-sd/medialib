@@ -1,6 +1,6 @@
 from abc import abstractmethod
 
-from PyQt6.QtCore import pyqtSignal, QSortFilterProxyModel, Qt
+from PyQt6.QtCore import pyqtSignal, QSortFilterProxyModel, Qt, QRegularExpression
 from PyQt6.QtWidgets import QAbstractItemView, QTableView, QTreeView
 
 from app.collection import props
@@ -22,6 +22,10 @@ class View(QAbstractItemView):
     @abstractmethod
     def item_model(self):
         raise NotImplemented
+
+    def find_text(self, text):
+        re = QRegularExpression(text, QRegularExpression.PatternOption.CaseInsensitiveOption)
+        self.item_model().setFilterRegularExpression(re)
 
     def get_all_selected_items(self):
         selected = self._get_selection_items(self.selectionModel().selectedRows())
@@ -60,6 +64,7 @@ class TableView(QTableView, View):
             raise ValueError("Table view does not support groups")
         p_model = TableModel(kwargs["view_items"], kwargs["fields"])
         self.setModel(self._create_proxy_model(self, p_model))
+        self.resizeColumnToContents(0)
 
     def clear(self):
         self.setModel(None)
@@ -97,16 +102,15 @@ class ColumnView(TableView):
 
     def show_data(self, **kwargs):
         view_items = kwargs["view_items"]
-        if len(view_items) != 1:
-            raise ValueError("Column Model can only be shown for single items")
-        if kwargs["group_by"] is not None:
-            raise ValueError("Table view does not support groups")
-
         p_model = ColumnModel(view_items, kwargs["fields"])
         self.setModel(self._create_proxy_model(self, p_model))
+        self.resizeColumnToContents(0)
 
 
 class SpanningTreeview(QTreeView, View):
+    # TODO: Draw line under groups and paths
+    # https://stackoverflow.com/questions/76822541/how-do-i-put-a-bold-line-under-certain-rows-in-a-qtabwidget
+
     item_click = pyqtSignal(dict, "PyQt_PyObject", str)
 
     def show_data(self, **kwargs):
@@ -114,6 +118,7 @@ class SpanningTreeview(QTreeView, View):
         proxy_model = self._create_proxy_model(self, p_model)
         proxy_model.setRecursiveFilteringEnabled(True)
         self.setModel(proxy_model)
+        self.resizeColumnToContents(0)
 
     def clear(self):
         self.setModel(None)
@@ -125,7 +130,6 @@ class SpanningTreeview(QTreeView, View):
         super().__init__(parent)
         self.setAlternatingRowColors(True)
         self.setUniformRowHeights(True)  # Allows for scrolling optimizations.
-        self.setAlternatingRowColors(True)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)
@@ -148,4 +152,5 @@ class FileSystemTreeView(SpanningTreeview):
         proxy_model = self._create_proxy_model(self, p_model)
         proxy_model.setRecursiveFilteringEnabled(True)
         self.setModel(proxy_model)
+        self.resizeColumnToContents(0)
     

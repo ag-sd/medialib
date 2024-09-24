@@ -245,7 +245,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                         data = ModelData(data=result, path=path)
                         model_data.append(data)
                     self._display_model_data(model_data, self.collection.tags)
-                    self.statusBar().showMessage(f"Data for {task.result.keys()} paths fetched "
+                    self.statusBar().showMessage(f"Data for {len(task.result.keys())} paths fetched "
                                                  f"in {task.time_taken} seconds.", self._MLIB_UI_STATUS_MESSAGE_TIMEOUT)
                 except CollectionQueryError as d:
                     apputils.show_exception(self, d)
@@ -337,33 +337,6 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
             self._task_manager.start_task(self._MLIB_TASK_PATH_CHANGE, self.collection.data, {"paths": _paths})
         else:
             app.logger.debug("Empty path change request will not be submitted to collection")
-
-    def _view_event(self, action, event_args):
-        # TODO: Deprecate this and transfer this logic to the view manager
-        pass
-        # match action:
-        #     case ViewAction.VIEW:
-        #         view = event_args
-        #         app.logger.debug(f"View changed {view}")
-        #         new_view = view.view(self)
-        #         self.view_layout.replaceWidget(self.current_view, new_view)
-        #         del self.current_view
-        #         self.current_view = new_view
-        #         self.current_view_type = view
-        #         self.current_view_type_label.setText(view.name)
-        #         # If a path is being viewed, reload it
-        #         if self.current_view_details.property("model_data") is not None:
-        #             self._display_model_data(self.current_view_details.property("model_data"),
-        #                                      self.current_view_details.property("paths"),
-        #                                      self.current_view_details.property("fields"))
-        #
-        #     case ViewAction.FIELD:
-        #         fields = event_args
-        #         app.logger.debug(f"Show fields changed")
-        #         if self.current_view_details.property("model_data") is not None:
-        #             self._display_model_data(self.current_view_details.property("model_data"),
-        #                                      self.current_view_details.property("paths"),
-        #                                      fields)
 
     def _display_model_data(self, model_data: list, fields: set):
         self._view_manager.show_data(model_data, list(fields))
