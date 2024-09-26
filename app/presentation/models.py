@@ -11,7 +11,7 @@ from app.plugins.framework import FileData
 
 
 _GROUP_BG = QPalette().color(QPalette.ColorGroup.Normal, QPalette.ColorRole.Window)
-_GROUP_BG.setAlpha(18)
+_GROUP_BG.setAlpha(8)
 
 _ICON_FOLDER = QIcon.fromTheme("folder")
 _UNKNOWN = "N/A"
