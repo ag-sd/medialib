@@ -76,6 +76,8 @@ class ViewManager(QWidget, HasCollectionDisplaySupport):
                 self._load_view()
             case ViewContextMenuAction.FS_VIEW:
                 self._load_view()
+            case ViewContextMenuAction.EXPORT:
+                self._current_view.to_dataset()
 
     def _load_view(self):
         # Create an appropriate view for the data

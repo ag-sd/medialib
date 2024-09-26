@@ -65,6 +65,7 @@ class FileInfoPlugin(QDockWidget, WindowInfo, FileClickHandler):
                         self._add_property(group_node, key, file_data[field_name])
                 group = self._get_group_item(group)
                 group.setHidden(group_is_empty)
+            self.resize_columns("x")
 
         def resize_columns(self, _):
             self.resizeColumnToContents(0)

@@ -1,9 +1,9 @@
 from abc import abstractmethod
 
-from PyQt6.QtCore import pyqtSignal, QSortFilterProxyModel, Qt, QRegularExpression, QMargins
+import tablib
+from PyQt6.QtCore import pyqtSignal, QSortFilterProxyModel, Qt, QRegularExpression
 from PyQt6.QtGui import QPalette, QPen
-from PyQt6.QtWidgets import QAbstractItemView, QTableView, QTreeView, QStyledItemDelegate, QStyleOptionHeader, \
-    QApplication, QStyle
+from PyQt6.QtWidgets import QAbstractItemView, QTableView, QTreeView, QStyledItemDelegate
 
 from app.collection import props
 from app.presentation.models import ColumnModel, TableModel, ViewItem, TreeModel, GroupTreeItemBuilder, \
@@ -22,12 +22,12 @@ class View(QAbstractItemView):
         raise NotImplemented
 
     @abstractmethod
-    def item_model(self):
+    def item_proxy_model(self) -> QSortFilterProxyModel:
         raise NotImplemented
 
     def find_text(self, text):
         re = QRegularExpression(text, QRegularExpression.PatternOption.CaseInsensitiveOption)
-        self.item_model().setFilterRegularExpression(re)
+        self.item_proxy_model().setFilterRegularExpression(re)
 
     def get_all_selected_items(self):
         selected = self._get_selection_items(self.selectionModel().selectedRows())
@@ -50,31 +50,20 @@ class View(QAbstractItemView):
     def _get_selection_items(self, proxy_model_indices: list):
         selection = []
         for index in proxy_model_indices:
-            source_index = self.item_model().mapToSource(index)
-            item = self.item_model().sourceModel().data(source_index, Qt.ItemDataRole.UserRole)
+            source_index = self.item_proxy_model().mapToSource(index)
+            item = self.item_proxy_model().sourceModel().data(source_index, Qt.ItemDataRole.UserRole)
             if isinstance(item, ViewItem) and item.is_leaf_item:
                 selection.append(item.data)
         return selection
 
+    def to_dataset(self):
+        headers = []
+        for i in range(0, self.item_proxy_model().columnCount()):
+            headers.append(self.item_proxy_model().headerData(i, Qt.Orientation.Horizontal))
 
-class SpanDelegate(QStyledItemDelegate):
-
-    def __init__(self, parent):
-        super().__init__(parent=parent)
-        color = QPalette().color(QPalette.ColorGroup.Normal, QPalette.ColorRole.Text)
-        color.setAlpha(75)
-        self._pen = QPen(color)
-
-    def paint(self, painter, option, index):
-        model = self.parent().item_model()
-        source_index = model.mapToSource(index)
-        data = model.sourceModel().data(source_index, Qt.ItemDataRole.UserRole)
-        super().paint(painter, option, index)
-        if not data.is_leaf_item:
-            painter.save()
-            painter.setPen(self._pen)
-            painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
-            painter.restore()
+        data = tablib.Dataset(headers=headers)
+        print(data.export("csv"))
+        print(self.item_proxy_model().rowCount())
 
 
 class TableView(QTableView, View):
@@ -91,7 +80,7 @@ class TableView(QTableView, View):
     def clear(self):
         self.setModel(None)
 
-    def item_model(self):
+    def item_proxy_model(self):
         return self.model()
 
     # https://stackoverflow.com/questions/57764723/make-an-active-search-with-qlistwidget
@@ -129,6 +118,26 @@ class ColumnView(TableView):
         self.resizeColumnToContents(0)
 
 
+class SpanDelegate(QStyledItemDelegate):
+
+    def __init__(self, parent):
+        super().__init__(parent=parent)
+        color = QPalette().color(QPalette.ColorGroup.Normal, QPalette.ColorRole.Text)
+        color.setAlpha(75)
+        self._pen = QPen(color)
+
+    def paint(self, painter, option, index):
+        model = self.parent().item_proxy_model()
+        source_index = model.mapToSource(index)
+        data = model.sourceModel().data(source_index, Qt.ItemDataRole.UserRole)
+        super().paint(painter, option, index)
+        if not data.is_leaf_item:
+            painter.save()
+            painter.setPen(self._pen)
+            painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
+            painter.restore()
+
+
 class SpanningTreeview(QTreeView, View):
     # TODO: Draw line under groups and paths
     # https://stackoverflow.com/questions/76822541/how-do-i-put-a-bold-line-under-certain-rows-in-a-qtabwidget
@@ -145,7 +154,7 @@ class SpanningTreeview(QTreeView, View):
     def clear(self):
         self.setModel(None)
 
-    def item_model(self):
+    def item_proxy_model(self):
         return self.model()
 
     def __init__(self, parent):
