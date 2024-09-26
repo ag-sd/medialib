@@ -11,11 +11,10 @@ TODO
 
 ## TODO
 ### Currently work priority
-1. Support for really large collections
-2. Export data
-3. System diagram using Mermaid
-4. Data diagram using Mermaid
-5. Cached preview objects
+1. Export data
+2. System diagram using Mermaid
+3. Data diagram using Mermaid
+4. Cached preview objects
 
 ### Backlog
 - DB support
@@ -62,7 +61,8 @@ TODO
   - Private Collections cannot be bookmarked or saved to recents
   - logging is limited to critical errors only when browsing private collections, but user can override this
 - [x] Group by any column (keep tableview and deprecate all other views)
-- [x] Find in virtual table(Not needed if #2 can be done)
+- [x] Find in virtual table
+- [x] Support for really large collections
 
 
 ### Cancelled Tasks

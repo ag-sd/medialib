@@ -1,7 +1,9 @@
 from abc import abstractmethod
 
-from PyQt6.QtCore import pyqtSignal, QSortFilterProxyModel, Qt, QRegularExpression
-from PyQt6.QtWidgets import QAbstractItemView, QTableView, QTreeView
+from PyQt6.QtCore import pyqtSignal, QSortFilterProxyModel, Qt, QRegularExpression, QMargins
+from PyQt6.QtGui import QPalette, QPen
+from PyQt6.QtWidgets import QAbstractItemView, QTableView, QTreeView, QStyledItemDelegate, QStyleOptionHeader, \
+    QApplication, QStyle
 
 from app.collection import props
 from app.presentation.models import ColumnModel, TableModel, ViewItem, TreeModel, GroupTreeItemBuilder, \
@@ -53,6 +55,26 @@ class View(QAbstractItemView):
             if isinstance(item, ViewItem) and item.is_leaf_item:
                 selection.append(item.data)
         return selection
+
+
+class SpanDelegate(QStyledItemDelegate):
+
+    def __init__(self, parent):
+        super().__init__(parent=parent)
+        color = QPalette().color(QPalette.ColorGroup.Normal, QPalette.ColorRole.Text)
+        color.setAlpha(75)
+        self._pen = QPen(color)
+
+    def paint(self, painter, option, index):
+        model = self.parent().item_model()
+        source_index = model.mapToSource(index)
+        data = model.sourceModel().data(source_index, Qt.ItemDataRole.UserRole)
+        super().paint(painter, option, index)
+        if not data.is_leaf_item:
+            painter.save()
+            painter.setPen(self._pen)
+            painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
+            painter.restore()
 
 
 class TableView(QTableView, View):
@@ -135,6 +157,7 @@ class SpanningTreeview(QTreeView, View):
         self.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)
         self.setSortingEnabled(True)
         self.clicked.connect(self._clicked)
+        self.setItemDelegate(SpanDelegate(self))
         self._grouping = []
 
     def drawRow(self, painter, options, index):
@@ -143,14 +166,13 @@ class SpanningTreeview(QTreeView, View):
             if not item.is_leaf_item:
                 self.setFirstColumnSpanned(index.row(), self.model().parent(index), True)
         super().drawRow(painter, options, index)
-        
+
 
 class FileSystemTreeView(SpanningTreeview):
-    
+
     def show_data(self, **kwargs):
         p_model = TreeModel(FileSystemModelBuilder().build(**kwargs), kwargs["fields"])
         proxy_model = self._create_proxy_model(self, p_model)
         proxy_model.setRecursiveFilteringEnabled(True)
         self.setModel(proxy_model)
         self.resizeColumnToContents(0)
-    
