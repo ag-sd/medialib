@@ -36,6 +36,7 @@ class FileInfoPlugin(QDockWidget, WindowInfo, FileClickHandler):
             self.setColumnCount(2)
             self.setAlternatingRowColors(True)
             self.setHeaderLabels(["Property", "Value"])
+            self.setHeaderHidden(True)
             self.itemExpanded.connect(self.resize_columns)
 
         def show_properties(self, file_data: dict, tags: list):
@@ -69,7 +70,7 @@ class FileInfoPlugin(QDockWidget, WindowInfo, FileClickHandler):
 
         def resize_columns(self, _):
             self.resizeColumnToContents(0)
-            self.resizeColumnToContents(1)
+            self.header().setStretchLastSection(True)
 
         def clear(self):
             root_property = []
@@ -93,9 +94,11 @@ class FileInfoPlugin(QDockWidget, WindowInfo, FileClickHandler):
                 app.logger.debug(f"{key} has been moved. Reusing existing object")
                 item = items[0]
                 item.setText(1, value)
+                item.setToolTip(1, value)
             else:
                 item = QTreeWidgetItem([key, value])
                 item.setData(0, Qt.ItemDataRole.UserRole, self._IS_PROPERTY)
+                item.setToolTip(1, value)
                 if parent == self.invisibleRootItem():
                     # A property has been added to the root as part of the db tags, and not as a result of a user drag
                     item.setData(0, Qt.ItemDataRole.UserRole + 1, self._IS_DEFAULT_LOCATION)
@@ -132,7 +135,7 @@ class FileInfoPlugin(QDockWidget, WindowInfo, FileClickHandler):
 
     @property
     def dockwidget_area(self):
-        return Qt.DockWidgetArea.BottomDockWidgetArea
+        return Qt.DockWidgetArea.RightDockWidgetArea
 
     @property
     def name(self) -> str:

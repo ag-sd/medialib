@@ -64,6 +64,7 @@ class View(QAbstractItemView):
         data = tablib.Dataset(headers=headers)
         print(data.export("csv"))
         print(self.item_proxy_model().rowCount())
+        print(self.row)
 
 
 class TableView(QTableView, View):

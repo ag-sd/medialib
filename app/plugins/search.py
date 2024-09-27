@@ -256,7 +256,7 @@ class QueryWidget(QDockWidget, WindowInfo, HasCollectionDisplaySupport, SearchEv
 
     @property
     def dockwidget_area(self):
-        return Qt.DockWidgetArea.BottomDockWidgetArea
+        return Qt.DockWidgetArea.RightDockWidgetArea
 
     @property
     def name(self) -> str:
