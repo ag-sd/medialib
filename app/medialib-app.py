@@ -13,7 +13,7 @@ import app
 import apputils
 from app import appsettings
 from app.actions import AppMenuBar, MediaLibAction, DBAction
-from app.collection import exifinfo
+from app.collection import exifinfo, props
 from app.collection.ds import Collection, CollectionNotFoundError, CorruptedCollectionError, \
     HasCollectionDisplaySupport, \
     CollectionQueryError
@@ -25,11 +25,6 @@ from app.presentation.models import ModelData
 
 
 class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
-    _MLIB_TASK_PATH_CHANGE = "paths-changed"
-    _MLIB_TASK_QUERY_SEARCH = "query-search"
-    _MLIB_TASK_REFRESH_PATHS = "refresh-paths"
-    _MLIB_TASK_SAVE = "save-collection"
-    _MLIB_TASK_REINDEX = "reindex-collection"
 
     _MLIB_UI_STATUS_MESSAGE_TIMEOUT = 5000
 
@@ -42,6 +37,9 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         super().__init__()
         # Current View
         app.logger.debug("Setup current view widgets ...")
+        self._task_manager = TaskManager(self)
+        self._task_manager.work_complete.connect(self._background_task_complete_event)
+
         self._view_manager = ViewManager(self)
         self._view_manager.item_click.connect(self._file_click)
 
@@ -51,8 +49,6 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         self.statusBar().addPermanentWidget(self._view_manager.view_details_label)
 
         self._plugins = []
-        self._task_manager = TaskManager(self)
-        self._task_manager.work_complete.connect(self._background_task_complete_event)
         self.statusBar().addPermanentWidget(self._task_manager)
 
         # Menu Bar
@@ -170,7 +166,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
 
                 if self._path_validated(save_location):
                     app.logger.debug(f"DB will be saved to {save_location}")
-                    self._task_manager.start_task(self._MLIB_TASK_SAVE, self.collection.save,
+                    self._task_manager.start_task(props.MLIB_TASK_SAVE, self.collection.save,
                                                   {"save_path": save_location})
 
             case DBAction.OPEN_DB | DBAction.OPEN_PRIVATE_DB:
@@ -190,7 +186,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                     self._refresh_paths(event_args)
 
             case DBAction.REINDEX_COLLECTION:
-                self._task_manager.start_task(self._MLIB_TASK_REINDEX, self.collection.reindex, {})
+                self._task_manager.start_task(props.MLIB_TASK_REINDEX, self.collection.reindex, {})
 
             case DBAction.PATH_CHANGE:
                 self._paths_changed(_paths=event_args)
@@ -238,7 +234,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
             return
 
         match task.id:
-            case self._MLIB_TASK_PATH_CHANGE:
+            case props.MLIB_TASK_PATH_CHANGE:
                 try:
                     model_data = []
                     for path, result in task.result.items():
@@ -252,7 +248,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                 except Exception as exception:
                     apputils.show_exception(self, exception)
 
-            case self._MLIB_TASK_QUERY_SEARCH:
+            case props.MLIB_TASK_QUERY_SEARCH:
                 try:
                     model_data = []
                     for search_result in task.result.data:
@@ -264,17 +260,17 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                 except CollectionQueryError as d:
                     apputils.show_exception(self, d)
 
-            case self._MLIB_TASK_REFRESH_PATHS:
+            case props.MLIB_TASK_REFRESH_PATHS:
                 paths = task.args["paths"]
                 self.statusBar().showMessage(f"Path refresh completed for {paths} in {task.time_taken} seconds.",
                                              self._MLIB_UI_STATUS_MESSAGE_TIMEOUT)
                 app.logger.info(f"Path refresh completed for {paths} in {task.time_taken} seconds")
 
-            case self._MLIB_TASK_SAVE:
+            case props.MLIB_TASK_SAVE:
                 self.statusBar().showMessage(f"Save collection completed in {task.time_taken} seconds.",
                                              self._MLIB_UI_STATUS_MESSAGE_TIMEOUT)
 
-            case self._MLIB_TASK_REINDEX:
+            case props.MLIB_TASK_REINDEX:
                 self.statusBar().showMessage(f"Reindex collection completed in {task.time_taken} seconds.",
                                              self._MLIB_UI_STATUS_MESSAGE_TIMEOUT)
 
@@ -293,7 +289,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
         match search_type:
             case SearchEventHandler.SearchType.QUERY:
                 app.logger.debug("Searching collection with paths provided")
-                self._task_manager.start_task(self._MLIB_TASK_QUERY_SEARCH, self.collection.query, {
+                self._task_manager.start_task(props.MLIB_TASK_QUERY_SEARCH, self.collection.query, {
                     "query": search_scope, "query_paths": self.menubar.get_selected_collection_paths()
                 })
             case SearchEventHandler.SearchType.VISUAL:
@@ -303,7 +299,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
     def _refresh_paths(self, paths):
         app.logger.debug(f"Refreshing {len(paths)} path(s)")
         self.collection.clear_cache()
-        self._task_manager.start_task(self._MLIB_TASK_REFRESH_PATHS, self.collection.data,
+        self._task_manager.start_task(props.MLIB_TASK_REFRESH_PATHS, self.collection.data,
                                       {"paths": paths, "refresh": True})
 
     def _open_collection(self, db_path: str, db_action: DBAction, is_private: bool = False):
@@ -334,7 +330,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
     def _paths_changed(self, _paths):
         app.logger.debug(f"Selection changed to {_paths}")
         if len(_paths) > 0:
-            self._task_manager.start_task(self._MLIB_TASK_PATH_CHANGE, self.collection.data, {"paths": _paths})
+            self._task_manager.start_task(props.MLIB_TASK_PATH_CHANGE, self.collection.data, {"paths": _paths})
         else:
             app.logger.debug("Empty path change request will not be submitted to collection")
 

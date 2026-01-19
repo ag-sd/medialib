@@ -1,6 +1,5 @@
 from abc import abstractmethod
 
-import tablib
 from PyQt6.QtCore import pyqtSignal, QSortFilterProxyModel, Qt, QRegularExpression
 from PyQt6.QtGui import QPalette, QPen
 from PyQt6.QtWidgets import QAbstractItemView, QTableView, QTreeView, QStyledItemDelegate
@@ -55,16 +54,6 @@ class View(QAbstractItemView):
             if isinstance(item, ViewItem) and item.is_leaf_item:
                 selection.append(item.data)
         return selection
-
-    def to_dataset(self):
-        headers = []
-        for i in range(0, self.item_proxy_model().columnCount()):
-            headers.append(self.item_proxy_model().headerData(i, Qt.Orientation.Horizontal))
-
-        data = tablib.Dataset(headers=headers)
-        print(data.export("csv"))
-        print(self.item_proxy_model().rowCount())
-        print(self.row)
 
 
 class TableView(QTableView, View):

@@ -119,11 +119,11 @@ class TaskManager(QWidget):
         self.work_complete.emit(task)
 
     def start_task(self, task_name, work_func, kwargs=None):
-        tasks = TaskWorker(task_name, work_func, **kwargs)
-        tasks.signals.thread_complete.connect(self._thread_complete)
-        self._tasks_queue.put(tasks)
+        task = TaskWorker(task_name, work_func, **kwargs)
+        task.signals.thread_complete.connect(self._thread_complete)
+        self._tasks_queue.put(task)
         self._progressbar.setVisible(True)
-        _start_tasks([tasks])
+        _start_tasks([task])
 
     @property
     def active_tasks(self):

@@ -29,6 +29,13 @@ V_VERSION = "version"
 EXIFTOOL_APP = "exiftool"
 EXIFTOOL_CSV_DELIMITER = "|"
 
+MLIB_TASK_PATH_CHANGE = "paths-changed"
+MLIB_TASK_QUERY_SEARCH = "query-search"
+MLIB_TASK_REFRESH_PATHS = "refresh-paths"
+MLIB_TASK_SAVE = "save-collection"
+MLIB_TASK_REINDEX = "reindex-collection"
+VMGR_TASK_EXPORT = "vmgr-task-export"
+
 FIELD_SOURCE_FILE = "SourceFile"
 FIELD_FILE_NAME = "System:FileName"
 FIELD_FILE_SIZE = "System:FileSize"
