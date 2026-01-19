@@ -1,6 +1,6 @@
 #! /bin/bash
 
-VENV_DIR="venv"
+VENV_DIR=".venv"
 
 # Clean up
 rm -rf $VENV_DIR
