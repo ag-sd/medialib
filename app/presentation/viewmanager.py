@@ -1,4 +1,4 @@
-from PyQt6.QtCore import pyqtSignal, QSortFilterProxyModel, QRegularExpression
+from PyQt6.QtCore import pyqtSignal, QSortFilterProxyModel, Qt
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel
 
 import app
@@ -6,12 +6,15 @@ from app.actions import ViewContextMenu, ViewContextMenuAction
 from app.collection import props
 from app.collection.ds import HasCollectionDisplaySupport, Collection
 from app.plugins.framework import FileData
+from app.presentation import export
+from app.presentation.export import ExportFormat
 from app.presentation.models import BaseViewBuilder
 from app.presentation.views import View, ColumnView, TableView, SpanningTreeview, FileSystemTreeView
 
 
 class ViewManager(QWidget, HasCollectionDisplaySupport):
     item_click = pyqtSignal(dict, "PyQt_PyObject", str)
+    export_requested = pyqtSignal()
 
     def __init__(self, parent):
         super().__init__(parent=parent)
@@ -19,7 +22,7 @@ class ViewManager(QWidget, HasCollectionDisplaySupport):
         self._base_view = BaseViewBuilder()
         self._fields: list = []
         self._group_by: list = []
-        self._context_menu: ViewContextMenu = ViewContextMenu(self)
+        self._context_menu: ViewContextMenu = ViewContextMenu(parent)
         self._current_view = QWidget()
         self._view_layout = QVBoxLayout()
         self._view_layout.setContentsMargins(0, 0, 0, 0)
@@ -55,6 +58,9 @@ class ViewManager(QWidget, HasCollectionDisplaySupport):
         # Create an appropriate view for the data and update the view
         self._load_view()
 
+    def save_data(self, _format: ExportFormat, export_file: str):
+        self._save_view(_format, export_file)
+
     def contextMenuEvent(self, a0):
         sel = self._current_view.get_all_selected_items()
         file_available = (len(sel) == 1 and
@@ -77,7 +83,18 @@ class ViewManager(QWidget, HasCollectionDisplaySupport):
             case ViewContextMenuAction.FS_VIEW:
                 self._load_view()
             case ViewContextMenuAction.EXPORT:
-                self._current_view.to_dataset()
+                self.export_requested.emit()
+
+    def _save_view(self, _format: ExportFormat, export_file: str):
+        if isinstance(self._current_view, SpanningTreeview) or isinstance(self._current_view, FileSystemTreeView):
+            model: QSortFilterProxyModel = self._current_view.item_proxy_model()
+            columns = []
+            for i in range(0, model.columnCount()):
+                columns.append(model.headerData(i, Qt.Orientation.Horizontal), _format)
+            export.from_data(export_file, self._base_view.data, columns,
+                             model.filterRegularExpression().pattern(), model.sortColumn(), model.sortOrder())
+        elif len(self._base_view.data) > 0:
+            export.from_model(export_file, self._current_view.item_proxy_model(), _format)
 
     def _load_view(self):
         # Create an appropriate view for the data

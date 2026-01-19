@@ -19,6 +19,7 @@ from app.collection.ds import Collection, CollectionNotFoundError, CorruptedColl
     CollectionQueryError
 from app.plugins import search, info
 from app.plugins.framework import SearchEventHandler, FileClickHandler, FileData
+from app.presentation.export import ExportFormat
 from app.presentation.viewmanager import ViewManager
 from app.tasks import TaskManager, Task, TaskStatus
 from app.presentation.models import ModelData
@@ -42,6 +43,7 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
 
         self._view_manager = ViewManager(self)
         self._view_manager.item_click.connect(self._file_click)
+        self._view_manager.export_requested.connect(self._export_requested)
 
         self.view_layout = QVBoxLayout()
         self.view_layout.setContentsMargins(0, 0, 0, 0)
@@ -274,6 +276,12 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
                 self.statusBar().showMessage(f"Reindex collection completed in {task.time_taken} seconds.",
                                              self._MLIB_UI_STATUS_MESSAGE_TIMEOUT)
 
+            case props.MLIB_TASK_EXPORT:
+                export_file = task.args.get("export_file", "")
+                self.statusBar().showMessage(f"Export to {export_file} completed in {task.time_taken} seconds.",
+                                             self._MLIB_UI_STATUS_MESSAGE_TIMEOUT)
+                app.logger.info(f"Data export to {export_file} completed in {task.time_taken} seconds.")
+
     def register_plugin(self, plugin):
         plugin.setVisible(plugin.is_visible_on_start)
         self.addDockWidget(plugin.dockwidget_area, plugin)
@@ -336,6 +344,18 @@ class MediaLibApp(QMainWindow, HasCollectionDisplaySupport):
 
     def _display_model_data(self, model_data: list, fields: set):
         self._view_manager.show_data(model_data, list(fields))
+
+    def _export_requested(self):
+        """Handle export request from ViewManager."""
+        file_filter = ExportFormat.available_formats()
+        export_file, _filter = QFileDialog.getSaveFileName(self, "Export results", "",
+                                                         file_filter, ExportFormat.XLSX.filter,
+                                                         options=QFileDialog.Option.DontUseCustomDirectoryIcons)
+        if export_file != "":
+            _format = ExportFormat.from_filter(_filter)
+            app.logger.debug(f"Export requested to {export_file}")
+            self._task_manager.start_task(props.MLIB_TASK_EXPORT, self._view_manager.save_data,
+                                          {"_format": _format, "export_file": export_file})
 
     def _file_click(self, itemdata: dict, file_data: FileData | None, collection_path: str):
         model_data = None

@@ -34,7 +34,7 @@ MLIB_TASK_QUERY_SEARCH = "query-search"
 MLIB_TASK_REFRESH_PATHS = "refresh-paths"
 MLIB_TASK_SAVE = "save-collection"
 MLIB_TASK_REINDEX = "reindex-collection"
-VMGR_TASK_EXPORT = "vmgr-task-export"
+MLIB_TASK_EXPORT = "vmgr-task-export"
 
 FIELD_SOURCE_FILE = "SourceFile"
 FIELD_FILE_NAME = "System:FileName"
