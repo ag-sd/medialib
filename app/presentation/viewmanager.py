@@ -123,6 +123,10 @@ class ViewManager(QWidget, HasCollectionDisplaySupport):
 
         self._current_view.show_data(view_items=self._base_view.data, fields=self._fields, group_by=self._group_by)
 
+        # TODO: When a search filter is active and the view is changed, the new view does not
+        #       respect the search text. The filter should be reapplied after show_data().
+        #       Need to store the current filter text and call self._current_view.find_text()
+
         view_details = f"{len(self._base_view.collection_paths)} path{'s' if len(self._base_view.collection_paths) > 1 else ''} displayed"
         row_count = f". {len(self._base_view.data)} items"
         view_details = f"{view_details}{row_count}"
